@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"github.com/google/uuid"
 	ssi "github.com/nuts-foundation/go-did"
@@ -9,6 +10,7 @@ import (
 	"github.com/nuts-foundation/nuts-node/core"
 	"github.com/nuts-foundation/nuts-node/jsonld"
 	"github.com/nuts-foundation/nuts-node/vcr/credential"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"testing"
@@ -16,12 +18,21 @@ import (
 )
 
 func TestSQLCredentialStore(t *testing.T) {
+	logrus.SetLevel(logrus.TraceLevel)
 	container, db, err := startDatabase()
 	require.NoError(t, err)
 	defer func() {
-		println("Shutting down database")
+		t.Log("Shutting down database")
 		container.Terminate(context.Background())
 	}()
+	resetDatabaseAfterTest := func(t *testing.T) {
+		t.Cleanup(func() {
+			_, err := db.Exec("DELETE FROM verifiable_credentials")
+			if err != nil {
+				panic(err)
+			}
+		})
+	}
 
 	jsonldInstance := jsonld.NewJSONLDInstance()
 	err = jsonldInstance.(core.Configurable).Configure(*core.NewServerConfig())
@@ -30,6 +41,7 @@ func TestSQLCredentialStore(t *testing.T) {
 	for _, role := range []Role{RoleIssuer, RoleHolderVerifier} {
 		t.Run(string(role), func(t *testing.T) {
 			t.Run("store, then get", func(t *testing.T) {
+				resetDatabaseAfterTest(t)
 				store, err := NewSQLCredentialStore(db, role, jsonldInstance.DocumentLoader())
 				require.NoError(t, err)
 
@@ -47,9 +59,10 @@ func TestSQLCredentialStore(t *testing.T) {
 			t.Run("SearchCredentials", func(t *testing.T) {
 				search := func(t *testing.T, expected vc.VerifiableCredential,
 					queryFn func(query *vc.VerifiableCredential),
-					asserter func(actual vc.VerifiableCredential),
+					asserterFn func(actual vc.VerifiableCredential),
 					filterOnType bool,
 				) {
+					resetDatabaseAfterTest(t)
 					store, err := NewSQLCredentialStore(db, role, jsonldInstance.DocumentLoader())
 					require.NoError(t, err)
 
@@ -65,18 +78,22 @@ func TestSQLCredentialStore(t *testing.T) {
 					actual, err := store.SearchCredentials(query, filterOnType)
 
 					require.NoError(t, err)
-					if !assert.NotEmpty(t, actual, "no results found") {
-						// No results
-						return
+					if asserterFn == nil {
+						assert.Empty(t, actual, "no results expected")
+					} else {
+						if !assert.NotEmpty(t, actual, "no results found") {
+							// No results
+							return
+						}
+						// All results should match the asserter
+						for _, curr := range actual {
+							asserterFn(curr)
+						}
+						// At least the expected credential should be there
+						resultsJSON, _ := json.Marshal(actual)
+						credJSON, _ := expected.MarshalJSON()
+						assert.Contains(t, string(resultsJSON), string(credJSON))
 					}
-					// All results should match the asserter
-					for _, curr := range actual {
-						asserter(curr)
-					}
-					// At least the expected credential should be there
-					resultsJSON, _ := json.Marshal(actual)
-					credJSON, _ := expected.MarshalJSON()
-					assert.Contains(t, string(resultsJSON), string(credJSON))
 				}
 				t.Run("search on ID", func(t *testing.T) {
 					expected := createVC()
@@ -168,7 +185,75 @@ func TestSQLCredentialStore(t *testing.T) {
 						assert.Equal(t, 1, len(actual.CredentialSubject))
 					}, false)
 				})
+				t.Run("fulltext", func(t *testing.T) {
+					t.Run("with credentialSubject.organization.name, partial match", func(t *testing.T) {
+						expected := createVC()
+
+						search(t, expected, func(query *vc.VerifiableCredential) {
+							query.CredentialSubject = []interface{}{
+								map[string]interface{}{
+									"organization": map[string]string{
+										"name": "Ziekenhuis*",
+									},
+								},
+							}
+						}, func(actual vc.VerifiableCredential) {
+							// Do not take into account VCs with more than one credential subject,
+							// with not all of them matching the query (too complicated check).
+							assert.Equal(t, 1, len(actual.CredentialSubject))
+						}, false)
+					})
+					t.Run("with credentialSubject.organization.name,city, partial match", func(t *testing.T) {
+						expected := createVC()
+
+						search(t, expected, func(query *vc.VerifiableCredential) {
+							query.CredentialSubject = []interface{}{
+								map[string]interface{}{
+									"organization": map[string]string{
+										"name": "Ziekenhuis*",
+										"city": "Alm*",
+									},
+								},
+							}
+						}, func(actual vc.VerifiableCredential) {
+							// Do not take into account VCs with more than one credential subject,
+							// with not all of them matching the query (too complicated check).
+							assert.Equal(t, 1, len(actual.CredentialSubject))
+						}, false)
+					})
+					t.Run("with credentialSubject.organization.name, partial match (not matching)", func(t *testing.T) {
+						expected := createVC()
+
+						search(t, expected, func(query *vc.VerifiableCredential) {
+							query.CredentialSubject = []interface{}{
+								map[string]interface{}{
+									"organization": map[string]string{
+										"name": "Hospit*",
+									},
+								},
+							}
+						}, nil, false)
+					})
+					t.Run("with credentialSubject.organization.name, not null match", func(t *testing.T) {
+						expected := createVC()
+
+						search(t, expected, func(query *vc.VerifiableCredential) {
+							query.CredentialSubject = []interface{}{
+								map[string]interface{}{
+									"organization": map[string]string{
+										"name": "*",
+									},
+								},
+							}
+						}, func(actual vc.VerifiableCredential) {
+							// Do not take into account VCs with more than one credential subject,
+							// with not all of them matching the query (too complicated check).
+							assert.Equal(t, 1, len(actual.CredentialSubject))
+						}, false)
+					})
+				})
 				t.Run("no results", func(t *testing.T) {
+					resetDatabaseAfterTest(t)
 					store, err := NewSQLCredentialStore(db, role, jsonldInstance.DocumentLoader())
 					require.NoError(t, err)
 					cred := createVC()
@@ -184,6 +269,7 @@ func TestSQLCredentialStore(t *testing.T) {
 			})
 		})
 		t.Run("store existing credential", func(t *testing.T) {
+			resetDatabaseAfterTest(t)
 			store, err := NewSQLCredentialStore(db, role, jsonldInstance.DocumentLoader())
 			require.NoError(t, err)
 
@@ -220,6 +306,7 @@ func TestSQLCredentialStore(t *testing.T) {
 			assert.Equal(t, 2, count)
 		})
 		t.Run("credential data already exists", func(t *testing.T) {
+			resetDatabaseAfterTest(t)
 			var otherRole Role
 			if role == RoleIssuer {
 				otherRole = RoleHolderVerifier
@@ -271,4 +358,22 @@ func createVC() vc.VerifiableCredential {
 		},
 	}
 	return issuedCredential
+}
+
+func TestSQLCredentialStore_LoadData(t *testing.T) {
+	// Test to load some data in an arbitrary database
+	t.SkipNow()
+	dbURI := "postgres://postgres:postgres@localhost:5432?sslmode=disable"
+	db, err := sql.Open("postgres", dbURI)
+	require.NoError(t, err)
+	defer db.Close()
+
+	jsonldInstance := jsonld.NewJSONLDInstance()
+	err = jsonldInstance.(core.Configurable).Configure(*core.NewServerConfig())
+	require.NoError(t, err)
+	store, err := NewSQLCredentialStore(db, RoleIssuer, jsonldInstance.DocumentLoader())
+	require.NoError(t, err)
+
+	err = store.StoreCredential(createVC())
+	require.NoError(t, err)
 }

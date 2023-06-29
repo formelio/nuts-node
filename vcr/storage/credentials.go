@@ -10,8 +10,10 @@ import (
 	ssi "github.com/nuts-foundation/go-did"
 	"github.com/nuts-foundation/go-did/vc"
 	"github.com/nuts-foundation/nuts-node/jsonld"
+	"github.com/nuts-foundation/nuts-node/vcr/log"
 	"github.com/nuts-foundation/nuts-node/vcr/types"
 	"github.com/piprate/json-gold/ld"
+	"strconv"
 	"strings"
 )
 
@@ -56,11 +58,11 @@ func (s SQLCredentialStore) migrate() error {
 		`CREATE INDEX IF NOT EXISTS credential_type ON verifiable_credentials USING GIN (type)`,
 		`CREATE TABLE IF NOT EXISTS issued_verifiable_credentials (
 			id VARCHAR(255) PRIMARY KEY,
-			CONSTRAINT fk_iss_cred FOREIGN KEY(id) REFERENCES verifiable_credentials(id)
+			CONSTRAINT fk_iss_cred FOREIGN KEY(id) REFERENCES verifiable_credentials(id) ON DELETE CASCADE
 		)`,
 		`CREATE TABLE IF NOT EXISTS received_verifiable_credentials (
 			id VARCHAR(255) PRIMARY KEY,
-			CONSTRAINT fk_recv_cred FOREIGN KEY(id) REFERENCES verifiable_credentials(id) 
+			CONSTRAINT fk_recv_cred FOREIGN KEY(id) REFERENCES verifiable_credentials(id) ON DELETE CASCADE
 		)`,
 	}
 
@@ -147,6 +149,7 @@ func (s SQLCredentialStore) SearchCredentials(credentialQuery vc.VerifiableCrede
 
 	query += strings.Join(whereClauses, " AND ")
 
+	log.Logger().Tracef("Executing credential SQL query: %s", query)
 	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to search for credentials: %w", err)
@@ -195,13 +198,34 @@ func (s SQLCredentialStore) buildWhereClauses(credentialQuery vc.VerifiableCrede
 
 	// Search on subject
 	if credentialQuery.CredentialSubject != nil {
-		whereClauses = append(whereClauses, fmt.Sprintf("cred.subject_json @> $%d", len(args)+1))
 		expandedQuery, err := s.expandJSONLDDocument(credentialQuery)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to JSON-LD expand query: %w", err)
 		}
 		removeEmptyAtIDFromDocument(expandedQuery)
 		queryDocument, err := s.getCredentialSubjectFromDocument(expandedQuery)
+		// Full-text search needs to be used in case a wildcard (*) is used. Only prefix matching (e.g. Hospit*) is supported.
+		// Can possibly be implemented using tsvector, but can't get my head around that.
+		// Using JSONB query instead, which might be slower(?), but works.
+		// For instance:
+		// select subject_json,
+		//       subject_json::jsonb->0->'http://schema.org/organization'->0->'http://schema.org/legalname'->0->>'@value' LIKE 'Hospit%'
+		// from verifiable_credentials;
+		fullTextClauses, fullTextClauseValues := applyFullTextSearch("subject_json::jsonb", queryDocument)
+		for i := 0; i < len(fullTextClauses); i++ {
+			value := fullTextClauseValues[i]
+			if len(value) == 0 {
+				// NOT NULL clause
+				whereClauses = append(whereClauses, fullTextClauses[i])
+			} else {
+				// LIKE clause
+				// Just have to add arg indexer ($1, $2, etc.) to the clause
+				whereClauses = append(whereClauses, fullTextClauses[i]+" $"+strconv.Itoa(len(args)+1))
+				args = append(args, value)
+			}
+		}
+		// TODO: check if there were only full-text clauses, in that case we must not add the subject_json clause
+		whereClauses = append(whereClauses, fmt.Sprintf("cred.subject_json @> $%d", len(args)+1))
 		subjectQueryJSON, _ := json.Marshal(queryDocument)
 		args = append(args, subjectQueryJSON)
 	}
@@ -291,4 +315,97 @@ func removeEmptyAtIDFromDocument(input interface{}) {
 			}
 		}
 	}
+}
+
+// likeClause is a clause that can be used in a LIKE query for querying JSONB columns. Examples:
+// ->0->'http://schema.org/organization'->0->'http://schema.org/legalname'->0->>'@value' LIKE 'Hospit%'
+// ->0->'http://schema.org/organization'->0->'http://schema.org/legalname'->0->>'@value' IS NOT NULL
+type likeClause struct {
+	path []interface{}
+	// value is the value to match against, can contain a wildcard (%) at the end.
+	// If the value is empty, the clause is a NOT NULL clause
+	value string
+}
+
+func applyFullTextSearch(prefix string, document interface{}) ([]string, []string) {
+	clauses := flatten(document, nil)
+	paths := make([]string, 0)
+	values := make([]string, 0)
+
+	for _, clause := range clauses {
+		path := prefix
+		for _, pathPart := range clause.path {
+			indexerPart, isIndexed := pathPart.(int)
+			if isIndexed {
+				path += "->" + strconv.Itoa(indexerPart)
+			} else if pathPart == "@value" {
+				// value must be taken as text, otherwise LIKE will error
+				path += "->>'" + pathPart.(string) + "'"
+			} else {
+				path += "->'" + pathPart.(string) + "'"
+			}
+		}
+		if len(clause.value) == 0 {
+			path += " IS NOT NULL"
+		} else {
+			path += " LIKE"
+		}
+		paths = append(paths, path)
+		values = append(values, clause.value)
+		println(path, "=", clause.value)
+	}
+	return paths, values
+}
+
+func flatten(document interface{}, currentPath []interface{}) []likeClause {
+	switch typedDocument := document.(type) {
+	case jsonld.Document:
+		return flattenSlice(typedDocument, currentPath)
+	case []interface{}:
+		return flattenSlice(typedDocument, currentPath)
+	case map[string]interface{}:
+		return flattenMap(typedDocument, currentPath)
+	}
+	return nil
+}
+
+func flattenSlice(expanded []interface{}, currentPath []interface{}) []likeClause {
+	result := make([]likeClause, 0)
+	for i, sub := range expanded {
+		result = append(result, flatten(sub, append(currentPath, i))...)
+	}
+	return result
+}
+
+func flattenMap(expanded map[string]interface{}, currentPath []interface{}) []likeClause {
+	// JSON-LD in expanded form either has @value, @id, @list or objects
+	results := make([]likeClause, 0)
+	for key, value := range expanded {
+		switch key {
+		case "@id":
+			fallthrough
+		case "@value":
+			// prefix matching for strings when it ends with an asterisk (*)
+			if valueString, ok := value.(string); ok {
+				if strings.HasSuffix(valueString, "*") {
+					// replace last * with %
+					valueString = valueString[:len(valueString)-1] + "%"
+					// search query with just * means: must be present, otherwise it's a prefix query
+					results = append(results, likeClause{
+						path:  append(currentPath, key),
+						value: valueString,
+					})
+					// now delete the clause from the document since will be used as JSONB query,
+					// but these LIKE clauses are not supported in JSONB
+					delete(expanded, key)
+				}
+			}
+		case "@list":
+			results = append(results, flatten(value, currentPath)...)
+		default:
+			results = append(results, flatten(value, append(currentPath, key))...)
+		}
+	}
+
+	return results
 }
