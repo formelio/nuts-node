@@ -7,6 +7,7 @@ import (
 	"github.com/nuts-foundation/go-stoabs/postgres"
 	"github.com/nuts-foundation/nuts-node/core"
 	"github.com/nuts-foundation/nuts-node/storage/log"
+	log2 "github.com/nuts-foundation/nuts-node/vcr/log"
 	"path"
 )
 
@@ -51,4 +52,28 @@ func (b sqlDatabase) close() {
 	if err != nil {
 		log.Logger().WithError(err).Error("Failed to close SQL database")
 	}
+}
+
+func DoSqlTx(db *sql.DB, receiver func(tx *sql.Tx) error) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to start transaction: %w", err)
+	}
+	rollback := true
+	defer func() {
+		if rollback {
+			log2.Logger().WithError(err).Warn("Rolling back SQL transaction due to application error")
+			if err = tx.Rollback(); err != nil {
+				log2.Logger().WithError(err).Warn("SQL transaction rollback failed")
+			}
+		}
+	}()
+	err = receiver(tx)
+	if err == nil {
+		rollback = false
+		if err = tx.Commit(); err != nil {
+			return fmt.Errorf("failed to commit SQL transaction: %w", err)
+		}
+	}
+	return err
 }

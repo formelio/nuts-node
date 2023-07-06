@@ -196,11 +196,27 @@ func (s sqlStore) Resolve(id did.DID, metadata *types.ResolveMetadata) (*did.Doc
 	if err != nil {
 		return nil, nil, fmt.Errorf("resolve DID version failed (%s, did=%s): %w", id, queryName, err)
 	}
+	// Was the document found?
 	if document == nil {
 		return nil, nil, types.ErrNotFound
 	}
+	// Do we allow deactivated documents?
 	if isDeactivated(*document) && (metadata == nil || !metadata.AllowDeactivated) {
 		return nil, nil, types.ErrDeactivated
+	}
+	// Do we need to filter on SourceTransaction?
+	if metadata != nil && len(metadata.SourceTransaction) > 0 {
+		var matches bool
+	outer:
+		for _, tx1 := range md.SourceTransactions {
+			if tx1.Equals(*metadata.SourceTransaction) {
+				matches = true
+				break outer
+			}
+		}
+		if !matches {
+			return nil, nil, types.ErrNotFound
+		}
 	}
 	return document, md, nil
 }

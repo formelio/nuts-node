@@ -380,6 +380,9 @@ func TestSqlStore_Resolve(t *testing.T) {
 			assert.Nil(t, md)
 		})
 	})
+	t.Run("filter on SourceTransaction", func(t *testing.T) {
+		t.Fatal("TODO")
+	})
 
 	//
 	//	t.Run("previous", func(t *testing.T) {

@@ -89,7 +89,7 @@ func (s SQLCredentialStore) StoreCredential(credential vc.VerifiableCredential) 
 		credentialTypes = append(credentialTypes, t.String())
 	}
 
-	return doTX(s.db, func(tx *sql.Tx) error {
+	return DoSqlTx(s.db, func(tx *sql.Tx) error {
 		query := fmt.Sprintf("SELECT COUNT(id) FROM %s WHERE id = $1", s.tableName())
 		if exists, err := queryExists(tx, query, credential.ID.String()); err != nil {
 			return fmt.Errorf("failed to check if credential (%s) exists (id=%s): %w", s.tableName(), credential.ID, err)
