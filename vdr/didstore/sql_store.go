@@ -44,7 +44,7 @@ func (s sqlStore) migrate() error {
 			tx_ref VARCHAR(255) NOT NULL,
 			prev_hash VARCHAR(255) NOT NULL
 		)`,
-		`CREATE VIEW did_documents_current_versions AS
+		`CREATE OR REPLACE VIEW did_documents_current_versions AS
 			SELECT did, tx_ref, data
 			FROM did_documents docs
 			WHERE NOT EXISTS(
@@ -61,8 +61,16 @@ func (s sqlStore) migrate() error {
 		_, err := s.db.Exec(statement)
 		// Ignore errors for duplicate constraints
 		var pqErr *pq.Error
-		if errors.As(err, &pqErr) && pqErr.Code.Name() == "duplicate_object" {
-			continue
+		if errors.As(err, &pqErr) {
+			switch pqErr.Code.Name() {
+			case "duplicate_object":
+				fallthrough
+			case "duplicate_table":
+				// this is OK
+				continue
+			default:
+				// this is not OK
+			}
 		}
 		if err != nil {
 			return fmt.Errorf("failed to execute migration statement %s: %w", statement, err)

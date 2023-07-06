@@ -181,7 +181,7 @@ func CreateSystem(shutdownCallback context.CancelFunc) *core.System {
 	httpServerInstance := httpEngine.New(shutdownCallback, cryptoInstance)
 	jsonld := jsonld.NewJSONLDInstance()
 	storageInstance := storage.New()
-	didStore := didstore.New(storageInstance.GetProvider(vdr.ModuleName))
+	didStore := didstore.NewDeferredStore(storageInstance.GetProvider(vdr.ModuleName))
 	keyResolver := didservice.KeyResolver{Store: didStore}
 	docResolver := didservice.Resolver{Store: didStore}
 	docFinder := didservice.Finder{Store: didStore}

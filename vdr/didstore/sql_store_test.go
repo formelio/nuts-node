@@ -333,6 +333,14 @@ func TestSqlStore_Conflicted(t *testing.T) {
 	})
 }
 
+func TestSqlStore_Lifecycle(t *testing.T) {
+	t.Run("migrate with existing tables", func(t *testing.T) {
+		store := newTestSqlStore(t)
+		err := store.migrate()
+		require.NoError(t, err)
+	})
+}
+
 func TestSqlStore_Resolve(t *testing.T) {
 	store := newTestSqlStore(t)
 
