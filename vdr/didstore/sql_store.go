@@ -101,13 +101,24 @@ func (s sqlStore) migrate() error {
 }
 
 func (s sqlStore) Add(didDocument did.Document, tx Transaction) error {
-	var txAlreadyExistsErr = errors.New("transaction already exists")
-	var startTime = time.Now()
+	// startTime is used to measure the duration of the operation.
+	// Operation duration for already existing documents is not measured, since it's so fast it would skew the metrics.
+	var startTime time.Time
 	err := storage.DoSqlTx(s.db, func(sqlTx *sql.Tx) error {
+		// Already exists? Ignore.
+		var txRef string
+		err := sqlTx.QueryRow("SELECT 1 FROM did_documents WHERE tx_ref=$1", tx.Ref.String()).Scan(&txRef)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("failed to check if transaction already exists: %w", err)
+		} else if err == nil {
+			// Already exists
+			return nil
+		}
+
+		startTime = time.Now()
 		// Get version of last version, to determine the new version
 		var version int
-
-		err := sqlTx.QueryRow("SELECT last.version "+
+		err = sqlTx.QueryRow("SELECT last.version "+
 			"FROM did_documents doc INNER JOIN ( "+
 			" SELECT MAX(version) AS version "+
 			" FROM did_documents "+
@@ -129,11 +140,7 @@ func (s sqlStore) Add(didDocument did.Document, tx Transaction) error {
 			didDocument.ID.String(), tx.Ref.String(), tx.PayloadHash.String(), data, isDeactivated(didDocument),
 			tx.SigningTime, version, tx.Clock)
 		// Duplicates should be ignored
-		var pqErr *pq.Error
-		if errors.As(err, &pqErr) && pqErr.Code.Name() == "unique_violation" && pqErr.Constraint == "did_documents_pkey" {
-			// Duplicate entry (txRef), ignore
-			return txAlreadyExistsErr
-		} else if err != nil {
+		if err != nil {
 			return fmt.Errorf("failed to insert DID document (did=%s): %w", didDocument.ID, err)
 		}
 
@@ -152,11 +159,8 @@ func (s sqlStore) Add(didDocument did.Document, tx Transaction) error {
 
 		return nil
 	})
-	if err == nil {
+	if err == nil && !startTime.IsZero() {
 		s.operationDurationMetric.WithLabelValues("Add").Observe(float64(time.Since(startTime).Milliseconds()))
-	}
-	if errors.Is(err, txAlreadyExistsErr) {
-		return nil
 	}
 	return err
 }
