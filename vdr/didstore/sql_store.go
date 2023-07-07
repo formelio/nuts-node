@@ -8,8 +8,10 @@ import (
 	"github.com/lib/pq"
 	"github.com/nuts-foundation/go-did/did"
 	"github.com/nuts-foundation/nuts-node/crypto/hash"
+	"github.com/nuts-foundation/nuts-node/storage"
 	"github.com/nuts-foundation/nuts-node/vcr/log"
 	"github.com/nuts-foundation/nuts-node/vdr/types"
+	"github.com/prometheus/client_golang/prometheus"
 	"sort"
 	"time"
 )
@@ -17,14 +19,26 @@ import (
 var _ Store = (*sqlStore)(nil)
 
 type sqlStore struct {
-	db *sql.DB
+	db                      *sql.DB
+	operationDurationMetric *prometheus.HistogramVec
 }
 
 func NewSQLStore(db *sql.DB) (Store, error) {
 	s := &sqlStore{
 		db: db,
 	}
-	err := s.migrate()
+	s.operationDurationMetric = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Namespace: "nuts",
+		Subsystem: "vdr",
+		Name:      "sql_did_store_operation_duration_ms",
+		Help:      "Duration of operations on the VDR's SQL DID store in milliseconds",
+		Buckets:   []float64{10, 20, 50, 100, 200, 500, 1000, 2000, 5000},
+	}, []string{"op"})
+	err := prometheus.Register(s.operationDurationMetric)
+	if err != nil && err.Error() != (prometheus.AlreadyRegisteredError{}).Error() { // No unwrap on prometheus.AlreadyRegisteredError
+		return nil, err
+	}
+	err = s.migrate()
 	return s, err
 }
 
@@ -54,8 +68,12 @@ func (s sqlStore) migrate() error {
 				FROM did_prevs
 				WHERE did=docs.did AND docs.tx_ref=prev_hash)
 			ORDER BY did, version ASC`,
-		`CREATE INDEX IF NOT EXISTS did_documents_id ON did_documents (did)`,
+		`CREATE INDEX IF NOT EXISTS did_documents_tx ON did_documents (tx_ref)`,
+		`CREATE INDEX IF NOT EXISTS did_documents_hash ON did_documents (hash)`,
+		`CREATE INDEX IF NOT EXISTS did_documents_did ON did_documents (did)`,
+		`CREATE INDEX IF NOT EXISTS did_documents_tx_did ON did_documents (tx_ref, did)`,
 		`CREATE INDEX IF NOT EXISTS did_prevs_tx ON did_prevs (tx_ref)`,
+		`CREATE INDEX IF NOT EXISTS did_prevs_did ON did_prevs (did)`,
 		`ALTER TABLE did_prevs ADD CONSTRAINT fk_did_prev_tx FOREIGN KEY(tx_ref) REFERENCES did_documents(tx_ref)`,
 		`ALTER TABLE did_prevs ADD CONSTRAINT uq_did_prevs UNIQUE (tx_ref, prev_hash)`,
 	}
@@ -83,53 +101,64 @@ func (s sqlStore) migrate() error {
 }
 
 func (s sqlStore) Add(didDocument did.Document, tx Transaction) error {
-	// Get version of last version, to determine the new version
-	var version int
+	var txAlreadyExistsErr = errors.New("transaction already exists")
+	var startTime = time.Now()
+	err := storage.DoSqlTx(s.db, func(sqlTx *sql.Tx) error {
+		// Get version of last version, to determine the new version
+		var version int
 
-	err := s.db.QueryRow("SELECT last.version "+
-		"FROM did_documents doc INNER JOIN ( "+
-		" SELECT MAX(version) AS version "+
-		" FROM did_documents "+
-		" WHERE did=$1 "+
-		") AS last ON doc.version = last.version "+
-		"WHERE doc.did=$1",
-		didDocument.ID.String()).Scan(&version)
-	if err != nil && err != sql.ErrNoRows {
-		return fmt.Errorf("failed to get max version of DID document (did=%s): %w", didDocument.ID, err)
-	}
-	version++
-
-	// Then, insert
-	data, _ := didDocument.MarshalJSON()
-	_, err = s.db.Exec("INSERT INTO did_documents "+
-		"(did, tx_ref, hash, data, deactivated, timestamp, version, clock) "+
-		"VALUES "+
-		"($1, $2, $3, $4, $5, $6, $7, $8)",
-		didDocument.ID.String(), tx.Ref.String(), tx.PayloadHash.String(), data, isDeactivated(didDocument),
-		tx.SigningTime, version, tx.Clock)
-	// Duplicates should be ignored
-	var pqErr *pq.Error
-	if errors.As(err, &pqErr) && pqErr.Code.Name() == "unique_violation" && pqErr.Constraint == "did_documents_pkey" {
-		// Duplicate entry (txRef), ignore
-		return nil
-	} else if err != nil {
-		return fmt.Errorf("failed to insert DID document (did=%s): %w", didDocument.ID, err)
-	}
-
-	// Insert previous TXs (but only if the TXs is about the same DID)
-	for _, prev := range tx.Previous {
-		_, err = s.db.Exec("INSERT INTO did_prevs (did, tx_ref, prev_hash) VALUES ($1, $2, $3)", didDocument.ID.String(), tx.Ref.String(), prev.String())
-		if err != nil {
-			return fmt.Errorf("failed to insert previous transaction (txRef=%s, prev=%s): %w", tx.Ref, prev, err)
+		err := sqlTx.QueryRow("SELECT last.version "+
+			"FROM did_documents doc INNER JOIN ( "+
+			" SELECT MAX(version) AS version "+
+			" FROM did_documents "+
+			" WHERE did=$1 "+
+			") AS last ON doc.version = last.version "+
+			"WHERE doc.did=$1",
+			didDocument.ID.String()).Scan(&version)
+		if err != nil && err != sql.ErrNoRows {
+			return fmt.Errorf("failed to get max version of DID document (did=%s): %w", didDocument.ID, err)
 		}
-	}
+		version++
 
-	// Now sort all versions of this DID document
-	if err = s.sortVersions(didDocument); err != nil {
-		return err
-	}
+		// Then, insert
+		data, _ := didDocument.MarshalJSON()
+		_, err = sqlTx.Exec("INSERT INTO did_documents "+
+			"(did, tx_ref, hash, data, deactivated, timestamp, version, clock) "+
+			"VALUES "+
+			"($1, $2, $3, $4, $5, $6, $7, $8)",
+			didDocument.ID.String(), tx.Ref.String(), tx.PayloadHash.String(), data, isDeactivated(didDocument),
+			tx.SigningTime, version, tx.Clock)
+		// Duplicates should be ignored
+		var pqErr *pq.Error
+		if errors.As(err, &pqErr) && pqErr.Code.Name() == "unique_violation" && pqErr.Constraint == "did_documents_pkey" {
+			// Duplicate entry (txRef), ignore
+			return txAlreadyExistsErr
+		} else if err != nil {
+			return fmt.Errorf("failed to insert DID document (did=%s): %w", didDocument.ID, err)
+		}
 
-	return nil
+		// Insert previous TXs (but only if the TXs is about the same DID)
+		for _, prev := range tx.Previous {
+			_, err = sqlTx.Exec("INSERT INTO did_prevs (did, tx_ref, prev_hash) VALUES ($1, $2, $3)", didDocument.ID.String(), tx.Ref.String(), prev.String())
+			if err != nil {
+				return fmt.Errorf("failed to insert previous transaction (txRef=%s, prev=%s): %w", tx.Ref, prev, err)
+			}
+		}
+
+		// Now sort all versions of this DID document
+		if err = s.sortVersions(sqlTx, didDocument); err != nil {
+			return err
+		}
+
+		return nil
+	})
+	if err == nil {
+		s.operationDurationMetric.WithLabelValues("Add").Observe(float64(time.Since(startTime).Milliseconds()))
+	}
+	if errors.Is(err, txAlreadyExistsErr) {
+		return nil
+	}
+	return err
 }
 
 func (s sqlStore) Conflicted(fn types.DocIterator) error {
@@ -161,7 +190,13 @@ func (s sqlStore) DocumentCount() (uint, error) {
 }
 
 func (s sqlStore) Iterate(fn types.DocIterator) error {
-	rows, err := s.db.Query("SELECT did, tx_ref, data FROM did_documents_current_versions")
+	rows, err := s.db.Query(`
+		SELECT did, tx_ref, data, array(
+        	select prev_hash 
+        	from did_prevs p
+        	where p.tx_ref = d.tx_ref
+		) as prevs
+		FROM did_documents_current_versions d`)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	} else if err != nil {
@@ -177,8 +212,9 @@ func (s sqlStore) Iterate(fn types.DocIterator) error {
 	var versions []Transaction
 	var currentDID string
 	var previousDID string
+	var prevs []string
 	for rows.Next() {
-		err := rows.Scan(&currentDID, &txRef, &data)
+		err := rows.Scan(&currentDID, &txRef, &data, (*pq.StringArray)(&prevs))
 		if err != nil {
 			return fmt.Errorf("scan failure: %w", err)
 		}
@@ -197,7 +233,7 @@ func (s sqlStore) Iterate(fn types.DocIterator) error {
 			versions = nil
 		}
 
-		tx, err := s.unmarshalTX(data, txRef)
+		tx, err := s.unmarshalTX(data, txRef, prevs)
 		if err != nil {
 			return err
 		}
@@ -216,31 +252,40 @@ func (s sqlStore) Iterate(fn types.DocIterator) error {
 }
 
 func (s sqlStore) Resolve(id did.DID, resolveMD *types.ResolveMetadata) (*did.Document, *types.DocumentMetadata, error) {
+	var startTime = time.Now()
 	var query string
 	var queryArgs []interface{}
 	var queryName string
+	const columns = `tx_ref, data, array(
+		select prev_hash
+		from did_prevs p
+		where p.tx_ref = d.tx_ref
+	) as prevs`
 
 	if resolveMD != nil {
 		if resolveMD.Hash != nil {
 			queryName = "hash"
-			query = "SELECT tx_ref, data FROM did_documents WHERE hash=$1"
+			query = "SELECT " + columns + " FROM did_documents d WHERE hash=$1"
 			queryArgs = []interface{}{resolveMD.Hash.String()}
 		}
 		if resolveMD.SourceTransaction != nil {
 			queryName = "sourceTX"
-			query = "SELECT tx_ref, data FROM did_documents WHERE tx_ref=$1 AND did=$2"
+			query = "SELECT " + columns + " FROM did_documents d WHERE tx_ref=$1 AND did=$2"
 			queryArgs = []interface{}{resolveMD.SourceTransaction.String(), id.String()}
 		}
 	}
 	if query == "" {
 		queryName = "latest"
-		query = "SELECT tx_ref, data FROM did_documents_current_versions WHERE did=$1"
+		query = "SELECT " + columns + " FROM did_documents_current_versions d WHERE did=$1"
 		queryArgs = []interface{}{id.String()}
 	}
 	document, md, err := s.queryDocument(query, queryArgs...)
 	if err != nil {
 		return nil, nil, fmt.Errorf("resolve DID version failed (%s, did=%s): %w", id, queryName, err)
 	}
+
+	s.operationDurationMetric.WithLabelValues("Resolve").Observe(float64(time.Since(startTime).Milliseconds()))
+
 	// Was the document found?
 	if document == nil {
 		return nil, nil, types.ErrNotFound
@@ -264,12 +309,13 @@ func (s sqlStore) queryDocument(query string, args ...interface{}) (*did.Documen
 	var txRef string
 	var data []byte
 	var versions []Transaction
+	var prevs []string
 	for rows.Next() {
-		err := rows.Scan(&txRef, &data)
+		err := rows.Scan(&txRef, &data, (*pq.StringArray)(&prevs))
 		if err != nil {
 			return nil, nil, fmt.Errorf("scan failure: %w", err)
 		}
-		tx, err := s.unmarshalTX(data, txRef)
+		tx, err := s.unmarshalTX(data, txRef, prevs)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -279,26 +325,28 @@ func (s sqlStore) queryDocument(query string, args ...interface{}) (*did.Documen
 	return doc, md, nil
 }
 
-func (s sqlStore) unmarshalTX(data []byte, txRefString string) (Transaction, error) {
+func (s sqlStore) unmarshalTX(data []byte, txRef string, prevs []string) (Transaction, error) {
 	var document did.Document
 	if err := json.Unmarshal(data, &document); err != nil {
-		return Transaction{}, fmt.Errorf("unmarshal failure (tx=%s): %w", txRefString, err)
+		return Transaction{}, fmt.Errorf("unmarshal failure (tx=%s): %w", txRef, err)
 	}
-	txRef, err := hash.ParseHex(txRefString)
+	parsedRef, err := hash.ParseHex(txRef)
 	if err != nil {
 		return Transaction{}, err
 	}
 
-	// Find prevs
-	// TODO: These could be queried at once with either a JOIN or array_agg
-	prevs, err := s.findPrevs(txRef)
-	if err != nil {
-		return Transaction{}, err
+	var parsedPrevs []hash.SHA256Hash
+	for _, prev := range prevs {
+		parsedPrev, err := hash.ParseHex(prev)
+		if err != nil {
+			return Transaction{}, err
+		}
+		parsedPrevs = append(parsedPrevs, parsedPrev)
 	}
 	return Transaction{
-		Ref:      txRef,
+		Ref:      parsedRef,
 		document: &document,
-		Previous: prevs,
+		Previous: parsedPrevs,
 	}, nil
 }
 
@@ -329,7 +377,7 @@ func (s sqlStore) versionsToDocument(versions []Transaction, data []byte) (*did.
 		}
 		mergedDocumentBytes, _ := json.Marshal(mergedDocument)
 		md := types.DocumentMetadata{
-			// TODO: What about PrevousHash?
+			// TODO: What about PreviousHash?
 			SourceTransactions: sourceTXs,
 			Hash:               hash.SHA256Sum(mergedDocumentBytes),
 		}
@@ -337,29 +385,7 @@ func (s sqlStore) versionsToDocument(versions []Transaction, data []byte) (*did.
 	}
 }
 
-// findPrevs finds all prevs of a DID document transaction
-func (s sqlStore) findPrevs(txRef hash.SHA256Hash) ([]hash.SHA256Hash, error) {
-	rows, err := s.db.Query("SELECT prev_hash FROM did_prevs WHERE tx_ref=$1", txRef.String())
-	if err != nil {
-		return nil, fmt.Errorf("failed to query prevs (tx=%s): %w", txRef, err)
-	}
-	defer rows.Close()
-	var prevs []hash.SHA256Hash
-	for rows.Next() {
-		var str string
-		if err := rows.Scan(&str); err != nil {
-			return nil, fmt.Errorf("failed to scan prev (tx=%s): %w", txRef, err)
-		}
-		prev, err := hash.ParseHex(str)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse prev (tx=%s): %w", txRef, err)
-		}
-		prevs = append(prevs, prev)
-	}
-	return prevs, nil
-}
-
-func (s sqlStore) sortVersions(didDocument did.Document) error {
+func (s sqlStore) sortVersions(sqlTx *sql.Tx, didDocument did.Document) error {
 	type record struct {
 		txRef     string
 		clock     uint32
@@ -368,7 +394,7 @@ func (s sqlStore) sortVersions(didDocument did.Document) error {
 		hash      sql.NullString
 	}
 
-	rows, err := s.db.Query("SELECT tx_ref, clock, timestamp, version, hash FROM did_documents WHERE did = $1 ORDER BY version ASC", didDocument.ID.String())
+	rows, err := sqlTx.Query("SELECT tx_ref, clock, timestamp, version, hash FROM did_documents WHERE did = $1 ORDER BY version ASC", didDocument.ID.String())
 	if err != nil {
 		return fmt.Errorf("failed to query DID document versions (did=%s): %w", didDocument.ID, err)
 	}
@@ -409,7 +435,7 @@ func (s sqlStore) sortVersions(didDocument did.Document) error {
 
 	// Update versions starting at updateIdx
 	for i := updateIdx; i < len(sortedRecords); i++ {
-		_, err := s.db.Exec("UPDATE did_documents SET version=$1 WHERE tx_ref=$2",
+		_, err := sqlTx.Exec("UPDATE did_documents SET version=$1 WHERE tx_ref=$2",
 			i+1, sortedRecords[i].txRef)
 		if err != nil {
 			return fmt.Errorf("failed to update DID document version (did=%s): %w", didDocument.ID, err)
