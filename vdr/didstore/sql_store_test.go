@@ -34,6 +34,8 @@ var docACreate did.Document
 var docACreateTx Transaction
 var docAUpdate did.Document
 var docAUpdateTx Transaction
+var docBCreate did.Document
+var docBCreateTx Transaction
 
 func init() {
 	docACreate = did.Document{ID: testDID, Controller: []did.DID{testDID}}
@@ -42,6 +44,9 @@ func init() {
 	docAUpdateTx = newTestTransaction(docAUpdate, docACreateTx.Ref)
 	docAUpdateTx.SigningTime = docACreateTx.SigningTime
 	docACreateTx.SigningTime = docACreateTx.SigningTime.Add(-2 * time.Second)
+	didB := did.MustParseDID("did:nuts:didB")
+	docBCreate = did.Document{ID: didB, Controller: []did.DID{didB}}
+	docBCreateTx = newTestTransaction(docBCreate)
 }
 
 func TestSqlStore_Add(t *testing.T) {
@@ -380,7 +385,30 @@ func TestSqlStore_Iterate(t *testing.T) {
 }
 
 func Test_sqlStore_DocumentCount(t *testing.T) {
+	store := newTestSqlStore(t)
+	t.Run("only returns unique documents", func(t *testing.T) {
+		resetSqlStore(t, store)
 
+		err := store.Add(docACreate, docACreateTx)
+		require.NoError(t, err)
+		err = store.Add(docAUpdate, docAUpdateTx)
+		require.NoError(t, err)
+		err = store.Add(docBCreate, docBCreateTx)
+		require.NoError(t, err)
+
+		count, err := store.DocumentCount()
+
+		require.NoError(t, err)
+		assert.Equal(t, uint(2), count)
+	})
+	t.Run("empty store returns 0", func(t *testing.T) {
+		resetSqlStore(t, store)
+
+		count, err := store.DocumentCount()
+
+		require.NoError(t, err)
+		assert.Equal(t, uint(0), count)
+	})
 }
 
 func TestSqlStore_Resolve(t *testing.T) {
