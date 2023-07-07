@@ -341,6 +341,36 @@ func TestSqlStore_Lifecycle(t *testing.T) {
 	})
 }
 
+func TestSqlStore_Iterate(t *testing.T) {
+	store := newTestSqlStore(t)
+
+	// Populate store with 2 DIDs, A has 1 version, B has 2 versions.
+	// Iterate should walk over 2 documents (only the latest versions).
+	didA := did.MustParseDID("did:nuts:A")
+	didB := did.MustParseDID("did:nuts:B")
+	didADoc1 := did.Document{ID: didA, Controller: []did.DID{didA}, Service: []did.Service{testServiceA}}
+	didBDoc1 := did.Document{ID: didB, Controller: []did.DID{didB}, Service: []did.Service{testServiceA}}
+	didBDoc2 := did.Document{ID: didB, Controller: []did.DID{didB}, Service: []did.Service{testServiceB}}
+	err := store.Add(didADoc1, newTestTransaction(didADoc1))
+	require.NoError(t, err)
+	didBDoc1TX := newTestTransaction(didBDoc1)
+	err = store.Add(didBDoc1, didBDoc1TX)
+	require.NoError(t, err)
+	err = store.Add(didBDoc2, newTestTransaction(didBDoc2, didBDoc1TX.Ref))
+	require.NoError(t, err)
+
+	var docs []did.Document
+	err = store.Iterate(func(doc did.Document, metadata types.DocumentMetadata) error {
+		docs = append(docs, doc)
+		return nil
+	})
+
+	require.NoError(t, err)
+	assert.Len(t, docs, 2)
+	assert.Contains(t, docs, didADoc1)
+	assert.Contains(t, docs, didBDoc2)
+}
+
 func TestSqlStore_Resolve(t *testing.T) {
 	store := newTestSqlStore(t)
 

@@ -8,6 +8,7 @@ import (
 	"github.com/lib/pq"
 	"github.com/nuts-foundation/go-did/did"
 	"github.com/nuts-foundation/nuts-node/crypto/hash"
+	"github.com/nuts-foundation/nuts-node/vcr/log"
 	"github.com/nuts-foundation/nuts-node/vdr/types"
 	"sort"
 	"time"
@@ -28,12 +29,13 @@ func NewSQLStore(db *sql.DB) (Store, error) {
 }
 
 func (s sqlStore) migrate() error {
+	log.Logger().Debug("Migrating SQL DID store")
 	statements := []string{
 		`CREATE TABLE IF NOT EXISTS did_documents (
 			did VARCHAR(1000) NOT NULL,
 			tx_ref VARCHAR(255) NOT NULL PRIMARY KEY,
 			clock INTEGER NOT NULL,
-			hash VARCHAR(255) NOT NULL UNIQUE,
+			hash VARCHAR(255) NOT NULL,
 			deactivated BOOLEAN NOT NULL,
        		timestamp TIMESTAMP NOT NULL,
        		version INTEGER NOT NULL,
@@ -50,7 +52,8 @@ func (s sqlStore) migrate() error {
 			WHERE NOT EXISTS(
 				SELECT 1
 				FROM did_prevs
-				WHERE did=docs.did AND docs.tx_ref=prev_hash)`,
+				WHERE did=docs.did AND docs.tx_ref=prev_hash)
+			ORDER BY did, version ASC`,
 		`CREATE INDEX IF NOT EXISTS did_documents_id ON did_documents (did)`,
 		`CREATE INDEX IF NOT EXISTS did_prevs_tx ON did_prevs (tx_ref)`,
 		`ALTER TABLE did_prevs ADD CONSTRAINT fk_did_prev_tx FOREIGN KEY(tx_ref) REFERENCES did_documents(tx_ref)`,
@@ -82,10 +85,6 @@ func (s sqlStore) migrate() error {
 func (s sqlStore) Add(didDocument did.Document, tx Transaction) error {
 	// Get version of last version, to determine the new version
 	var version int
-
-	if len(tx.Previous) > 1 {
-		return errors.New("multiple previous transactions not supported yet")
-	}
 
 	err := s.db.QueryRow("SELECT last.version "+
 		"FROM did_documents doc INNER JOIN ( "+
@@ -162,40 +161,71 @@ func (s sqlStore) DocumentCount() (uint, error) {
 }
 
 func (s sqlStore) Iterate(fn types.DocIterator) error {
-	rows, err := s.db.Query("SELECT did, data FROM did_documents")
-	if err != nil {
-		return err
+	rows, err := s.db.Query("SELECT did, tx_ref, data FROM did_documents_current_versions")
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("query failure: %w", err)
 	}
 	defer rows.Close()
+
+	// Each DID can return as multiple records in case they are conflicted.
+	// Rows are returned in order of DID, so we collect transactions until a different DID is so returned.
+	// Then we collect the versions and call the visitor.
+	var txRef string
+	var data []byte
+	var versions []Transaction
+	var currentDID string
+	var previousDID string
 	for rows.Next() {
-		var id string
-		var data []byte
-		if err := rows.Scan(&id, &data); err != nil {
+		err := rows.Scan(&currentDID, &txRef, &data)
+		if err != nil {
+			return fmt.Errorf("scan failure: %w", err)
+		}
+		if previousDID == "" {
+			// First iteration
+			previousDID = currentDID
+		}
+
+		// If we have a new DID, collect versions and call the visitor
+		if currentDID != previousDID && previousDID != "" {
+			doc, md := s.versionsToDocument(versions, data)
+			err = fn(*doc, *md)
+			if err != nil {
+				return fmt.Errorf("visitor failure: %w", err)
+			}
+			versions = nil
+		}
+
+		tx, err := s.unmarshalTX(data, txRef)
+		if err != nil {
 			return err
 		}
-		var document did.Document
-		if err := json.Unmarshal(data, &document); err != nil {
-			return fmt.Errorf("failed to unmarshal DID document (did=%s): %w", id, err)
-		}
-		if err := fn(document, types.DocumentMetadata{}); err != nil {
-			return err
-		}
+		versions = append(versions, tx)
+	}
+
+	// For the last DID, there's no subsequent DID so we need to call the visitor here as well
+	doc, md := s.versionsToDocument(versions, data)
+	err = fn(*doc, *md)
+	if err != nil {
+		return fmt.Errorf("visitor failure: %w", err)
 	}
 	return nil
 }
 
-func (s sqlStore) Resolve(id did.DID, metadata *types.ResolveMetadata) (*did.Document, *types.DocumentMetadata, error) {
+func (s sqlStore) Resolve(id did.DID, resolveMD *types.ResolveMetadata) (*did.Document, *types.DocumentMetadata, error) {
 	var query string
 	var queryArgs []interface{}
 	var queryName string
 
-	if metadata != nil {
-		if metadata.Hash != nil {
+	if resolveMD != nil {
+		if resolveMD.Hash != nil {
 			queryName = "hash"
 			query = "SELECT tx_ref, data FROM did_documents_current_versions WHERE hash=$1"
-			queryArgs = []interface{}{metadata.Hash.String()}
+			queryArgs = []interface{}{resolveMD.Hash.String()}
 		}
-	} else {
+	}
+	if query == "" {
 		queryName = "latest"
 		query = "SELECT tx_ref, data FROM did_documents_current_versions WHERE did=$1"
 		queryArgs = []interface{}{id.String()}
@@ -209,15 +239,15 @@ func (s sqlStore) Resolve(id did.DID, metadata *types.ResolveMetadata) (*did.Doc
 		return nil, nil, types.ErrNotFound
 	}
 	// Do we allow deactivated documents?
-	if isDeactivated(*document) && (metadata == nil || !metadata.AllowDeactivated) {
+	if isDeactivated(*document) && (resolveMD == nil || !resolveMD.AllowDeactivated) {
 		return nil, nil, types.ErrDeactivated
 	}
 	// Do we need to filter on SourceTransaction?
-	if metadata != nil && len(metadata.SourceTransaction) > 0 {
+	if resolveMD != nil && resolveMD.SourceTransaction != nil {
 		var matches bool
 	outer:
 		for _, tx1 := range md.SourceTransactions {
-			if tx1.Equals(*metadata.SourceTransaction) {
+			if tx1.Equals(*resolveMD.SourceTransaction) {
 				matches = true
 				break outer
 			}
@@ -238,39 +268,51 @@ func (s sqlStore) queryDocument(query string, args ...interface{}) (*did.Documen
 	}
 	defer rows.Close()
 
-	var txRefString string
+	var txRef string
 	var data []byte
 	var versions []Transaction
 	for rows.Next() {
-		err := rows.Scan(&txRefString, &data)
+		err := rows.Scan(&txRef, &data)
 		if err != nil {
 			return nil, nil, fmt.Errorf("scan failure: %w", err)
 		}
-		var document did.Document
-		if err := json.Unmarshal(data, &document); err != nil {
-			return nil, nil, fmt.Errorf("unmarshal failure (tx=%s): %w", txRefString, err)
-		}
-		txRef, err := hash.ParseHex(txRefString)
+		tx, err := s.unmarshalTX(data, txRef)
 		if err != nil {
 			return nil, nil, err
 		}
+		versions = append(versions, tx)
+	}
+	doc, md := s.versionsToDocument(versions, data)
+	return doc, md, nil
+}
 
-		// Find prevs
-		// TODO: These could be queried at once with either a JOIN or array_agg
-		prevs, err := s.findPrevs(txRef)
-		if err != nil {
-			return nil, nil, err
-		}
-		versions = append(versions, Transaction{
-			Ref:      txRef,
-			document: &document,
-			Previous: prevs,
-		})
+func (s sqlStore) unmarshalTX(data []byte, txRefString string) (Transaction, error) {
+	var document did.Document
+	if err := json.Unmarshal(data, &document); err != nil {
+		return Transaction{}, fmt.Errorf("unmarshal failure (tx=%s): %w", txRefString, err)
+	}
+	txRef, err := hash.ParseHex(txRefString)
+	if err != nil {
+		return Transaction{}, err
 	}
 
+	// Find prevs
+	// TODO: These could be queried at once with either a JOIN or array_agg
+	prevs, err := s.findPrevs(txRef)
+	if err != nil {
+		return Transaction{}, err
+	}
+	return Transaction{
+		Ref:      txRef,
+		document: &document,
+		Previous: prevs,
+	}, nil
+}
+
+func (s sqlStore) versionsToDocument(versions []Transaction, data []byte) (*did.Document, *types.DocumentMetadata) {
 	switch len(versions) {
 	case 0:
-		return nil, nil, nil
+		return nil, nil
 	case 1:
 		md := types.DocumentMetadata{
 			Hash:               hash.SHA256Sum(data), // TODO: should we use the stored hash instead?
@@ -280,7 +322,7 @@ func (s sqlStore) queryDocument(query string, args ...interface{}) (*did.Documen
 			// TODO: this should be the hash of the DID document, not of the TX ref
 			md.PreviousHash = &versions[0].Previous[0]
 		}
-		return versions[0].document, &md, nil
+		return versions[0].document, &md
 	default:
 		// conflicted
 		var mergedDocument = *versions[0].document
@@ -298,7 +340,7 @@ func (s sqlStore) queryDocument(query string, args ...interface{}) (*did.Documen
 			SourceTransactions: sourceTXs,
 			Hash:               hash.SHA256Sum(mergedDocumentBytes),
 		}
-		return &mergedDocument, &md, nil
+		return &mergedDocument, &md
 	}
 }
 
