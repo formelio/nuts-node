@@ -30,20 +30,28 @@ import (
 	"time"
 )
 
+var docACreate did.Document
+var docACreateTx Transaction
+var docAUpdate did.Document
+var docAUpdateTx Transaction
+
+func init() {
+	docACreate = did.Document{ID: testDID, Controller: []did.DID{testDID}}
+	docACreateTx = newTestTransaction(docACreate)
+	docAUpdate = did.Document{ID: testDID, Controller: []did.DID{testDID}, Service: []did.Service{{ID: ssi.MustParseURI("service")}}}
+	docAUpdateTx = newTestTransaction(docAUpdate, docACreateTx.Ref)
+	docAUpdateTx.SigningTime = docACreateTx.SigningTime
+	docACreateTx.SigningTime = docACreateTx.SigningTime.Add(-2 * time.Second)
+}
+
 func TestSqlStore_Add(t *testing.T) {
-	create := did.Document{ID: testDID, Controller: []did.DID{testDID}}
-	txCreate := newTestTransaction(create)
-	update := did.Document{ID: testDID, Controller: []did.DID{testDID}, Service: []did.Service{{ID: ssi.MustParseURI("service")}}}
-	txUpdate := newTestTransaction(update, txCreate.Ref)
-	txUpdate.SigningTime = txCreate.SigningTime
-	txCreate.SigningTime = txCreate.SigningTime.Add(-2 * time.Second)
 
 	store := newTestSqlStore(t)
 
 	t.Run("one version", func(t *testing.T) {
 		resetSqlStore(t, store)
 
-		err := store.Add(create, txCreate)
+		err := store.Add(docACreate, docACreateTx)
 		require.NoError(t, err)
 
 		// count = 1
@@ -54,16 +62,16 @@ func TestSqlStore_Add(t *testing.T) {
 		// resolve
 		_, md, err := store.Resolve(testDID, nil)
 		require.NoError(t, err)
-		assert.Equal(t, txCreate.Ref, md.SourceTransactions[0])
+		assert.Equal(t, docACreateTx.Ref, md.SourceTransactions[0])
 		assert.Nil(t, md.PreviousHash)
 	})
 
 	t.Run("update in order", func(t *testing.T) {
 		resetSqlStore(t, store)
 
-		err := store.Add(create, txCreate)
+		err := store.Add(docACreate, docACreateTx)
 		require.NoError(t, err)
-		err = store.Add(update, txUpdate)
+		err = store.Add(docAUpdate, docAUpdateTx)
 		require.NoError(t, err)
 
 		// count = 1
@@ -74,22 +82,22 @@ func TestSqlStore_Add(t *testing.T) {
 		// resolve = updated version
 		_, md, err := store.Resolve(testDID, nil)
 		require.NoError(t, err)
-		assert.Equal(t, txUpdate.Ref, md.SourceTransactions[0])
+		assert.Equal(t, docAUpdateTx.Ref, md.SourceTransactions[0])
 	})
 
 	t.Run("update out order", func(t *testing.T) {
 		resetSqlStore(t, store)
 
-		err := store.Add(update, txUpdate)
+		err := store.Add(docAUpdate, docAUpdateTx)
 		require.NoError(t, err)
 
 		// resolve = updated version
 		_, md, err := store.Resolve(testDID, nil)
 		require.NoError(t, err)
-		assert.Equal(t, txUpdate.Ref, md.SourceTransactions[0])
+		assert.Equal(t, docAUpdateTx.Ref, md.SourceTransactions[0])
 
 		// Now add initial created document
-		err = store.Add(create, txCreate)
+		err = store.Add(docACreate, docACreateTx)
 		require.NoError(t, err)
 
 		// count = 1
@@ -100,15 +108,15 @@ func TestSqlStore_Add(t *testing.T) {
 		// resolve = updated version
 		_, md, err = store.Resolve(testDID, nil)
 		require.NoError(t, err)
-		assert.Equal(t, txUpdate.Ref, md.SourceTransactions[0])
+		assert.Equal(t, docAUpdateTx.Ref, md.SourceTransactions[0])
 	})
 
 	t.Run("duplicate should be ignored", func(t *testing.T) {
 		resetSqlStore(t, store)
 
-		err := store.Add(create, txCreate)
+		err := store.Add(docACreate, docACreateTx)
 		require.NoError(t, err)
-		err = store.Add(create, txCreate)
+		err = store.Add(docACreate, docACreateTx)
 		require.NoError(t, err)
 
 		// count = 1
@@ -241,7 +249,7 @@ func TestSqlStore_Add(t *testing.T) {
 	//t.Run("update ok", func(t *testing.T) {
 	//	store := NewTestStore(t)
 	//
-	//	require.NoError(t, store.Add(update, txUpdate))
+	//	require.NoError(t, store.Add(update, docAUpdateTx))
 	//	require.NoError(t, store.Add(create, txCreate))
 	//
 	//	t.Run("metadata ok", func(t *testing.T) {
@@ -257,12 +265,12 @@ func TestSqlStore_Add(t *testing.T) {
 	//			}
 	//
 	//			assert.Equal(t, txCreate.SigningTime.Unix(), metadata.Created.Unix())
-	//			assert.Equal(t, txUpdate.SigningTime.Unix(), metadata.Updated.Unix())
+	//			assert.Equal(t, docAUpdateTx.SigningTime.Unix(), metadata.Updated.Unix())
 	//			require.NotNil(t, metadata.PreviousHash)
 	//			assert.Equal(t, txCreate.PayloadHash, *metadata.PreviousHash)
-	//			assert.Equal(t, txUpdate.PayloadHash, metadata.Hash)
+	//			assert.Equal(t, docAUpdateTx.PayloadHash, metadata.Hash)
 	//			assert.Equal(t, []hash.SHA256Hash{txCreate.Ref}, metadata.PreviousTransaction)
-	//			assert.Equal(t, []hash.SHA256Hash{txUpdate.Ref}, metadata.SourceTransactions)
+	//			assert.Equal(t, []hash.SHA256Hash{docAUpdateTx.Ref}, metadata.SourceTransactions)
 	//			assert.Equal(t, 1, metadata.Version)
 	//			assert.Equal(t, false, metadata.Deactivated)
 	//
@@ -371,6 +379,10 @@ func TestSqlStore_Iterate(t *testing.T) {
 	assert.Contains(t, docs, didBDoc2)
 }
 
+func Test_sqlStore_DocumentCount(t *testing.T) {
+
+}
+
 func TestSqlStore_Resolve(t *testing.T) {
 	store := newTestSqlStore(t)
 
@@ -379,16 +391,9 @@ func TestSqlStore_Resolve(t *testing.T) {
 	err := store.Add(deactivatedDoc, newTestTransaction(deactivatedDoc))
 	require.NoError(t, err)
 
-	create := did.Document{ID: testDID, Controller: []did.DID{testDID}}
-	txCreate := newTestTransaction(create)
-	update := did.Document{ID: testDID, Controller: []did.DID{testDID}, Service: []did.Service{{ID: ssi.MustParseURI("service")}}}
-	txUpdate := newTestTransaction(update)
-	txUpdate.SigningTime = txCreate.SigningTime
-	txCreate.SigningTime = txCreate.SigningTime.Add(-2 * time.Second)
-
-	err = store.Add(create, txCreate)
+	err = store.Add(docACreate, docACreateTx)
 	require.NoError(t, err)
-	err = store.Add(update, txUpdate)
+	err = store.Add(docAUpdate, docAUpdateTx)
 
 	t.Run("not found", func(t *testing.T) {
 		_, _, err := store.Resolve(did.MustParseDID("did:nuts:unknown"), nil)
@@ -400,7 +405,7 @@ func TestSqlStore_Resolve(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Len(t, doc.Service, 1)
-		assert.Equal(t, txUpdate.PayloadHash, meta.Hash)
+		assert.Equal(t, docAUpdateTx.PayloadHash, meta.Hash)
 		// TODO: PreviousHash
 		//assert.NotNil(t, meta.PreviousHash)
 	})
@@ -420,21 +425,21 @@ func TestSqlStore_Resolve(t *testing.T) {
 	})
 	t.Run("filter on SourceTransaction", func(t *testing.T) {
 		t.Run("resolve first version", func(t *testing.T) {
-			doc, meta, err := store.Resolve(testDID, &types.ResolveMetadata{SourceTransaction: &txCreate.Ref})
+			doc, meta, err := store.Resolve(testDID, &types.ResolveMetadata{SourceTransaction: &docACreateTx.Ref})
 
 			require.NoError(t, err)
 			assert.Len(t, doc.Service, 0)
-			assert.Equal(t, txCreate.PayloadHash, meta.Hash)
+			assert.Equal(t, docACreateTx.PayloadHash, meta.Hash)
 		})
 		t.Run("resolve second version", func(t *testing.T) {
-			doc, meta, err := store.Resolve(testDID, &types.ResolveMetadata{SourceTransaction: &txUpdate.Ref})
+			doc, meta, err := store.Resolve(testDID, &types.ResolveMetadata{SourceTransaction: &docAUpdateTx.Ref})
 
 			require.NoError(t, err)
 			assert.Len(t, doc.Service, 1)
-			assert.Equal(t, txUpdate.PayloadHash, meta.Hash)
+			assert.Equal(t, docAUpdateTx.PayloadHash, meta.Hash)
 		})
 		t.Run("does not resolve for different DID", func(t *testing.T) {
-			doc, meta, err := store.Resolve(did.MustParseDID("did:nuts:other"), &types.ResolveMetadata{SourceTransaction: &txUpdate.Ref})
+			doc, meta, err := store.Resolve(did.MustParseDID("did:nuts:other"), &types.ResolveMetadata{SourceTransaction: &docAUpdateTx.Ref})
 
 			require.ErrorIs(t, err, types.ErrNotFound)
 			assert.Nil(t, doc)
@@ -444,7 +449,7 @@ func TestSqlStore_Resolve(t *testing.T) {
 
 	//
 	//	t.Run("previous", func(t *testing.T) {
-	//		before := txUpdate.SigningTime.Add(-1 * time.Second)
+	//		before := docAUpdateTx.SigningTime.Add(-1 * time.Second)
 	//		doc, meta, err := store.Resolve(testDID, &types.ResolveMetadata{ResolveTime: &before})
 	//
 	//		require.NoError(t, err)
@@ -453,7 +458,7 @@ func TestSqlStore_Resolve(t *testing.T) {
 	//	})
 	//
 	//	t.Run("to far back", func(t *testing.T) {
-	//		before := txUpdate.SigningTime.Add(-3 * time.Second)
+	//		before := docAUpdateTx.SigningTime.Add(-3 * time.Second)
 	//		_, _, err := store.Resolve(testDID, &types.ResolveMetadata{ResolveTime: &before})
 	//
 	//		assert.Equal(t, types.ErrNotFound, err)
@@ -462,9 +467,9 @@ func TestSqlStore_Resolve(t *testing.T) {
 	//	t.Run("deactivated", func(t *testing.T) {
 	//		store := NewTestStore(t)
 	//		update := did.Document{ID: testDID}
-	//		txUpdate := newTestTransaction(update, txCreate.Ref)
+	//		docAUpdateTx := newTestTransaction(update, txCreate.Ref)
 	//		add(t, store, create, txCreate)
-	//		add(t, store, update, txUpdate)
+	//		add(t, store, update, docAUpdateTx)
 	//
 	//		_, _, err := store.Resolve(testDID, nil)
 	//
@@ -474,9 +479,9 @@ func TestSqlStore_Resolve(t *testing.T) {
 	//	t.Run("deactivated, but specifically asking for !allowDeactivated", func(t *testing.T) {
 	//		store := NewTestStore(t)
 	//		update := did.Document{ID: testDID}
-	//		txUpdate := newTestTransaction(update, txCreate.Ref)
+	//		docAUpdateTx := newTestTransaction(update, txCreate.Ref)
 	//		add(t, store, create, txCreate)
-	//		add(t, store, update, txUpdate)
+	//		add(t, store, update, docAUpdateTx)
 	//
 	//		_, _, err := store.Resolve(testDID, &types.ResolveMetadata{})
 	//

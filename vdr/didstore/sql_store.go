@@ -32,7 +32,7 @@ func NewSQLStore(db *sql.DB) (Store, error) {
 		Subsystem: "vdr",
 		Name:      "sql_did_store_operation_duration_ms",
 		Help:      "Duration of operations on the VDR's SQL DID store in milliseconds",
-		Buckets:   []float64{10, 20, 50, 100, 200, 500, 1000, 2000, 5000},
+		Buckets:   []float64{5, 10, 20, 50, 100, 500, 1000, 2000, 5000},
 	}, []string{"op"})
 	err := prometheus.Register(s.operationDurationMetric)
 	if err != nil && err.Error() != (prometheus.AlreadyRegisteredError{}).Error() { // No unwrap on prometheus.AlreadyRegisteredError
@@ -182,7 +182,7 @@ func (s sqlStore) ConflictedCount() (uint, error) {
 
 func (s sqlStore) DocumentCount() (uint, error) {
 	var count int
-	err := s.db.QueryRow("SELECT COUNT(DISTINCT did) FROM did_documents GROUP BY did").Scan(&count)
+	err := s.db.QueryRow("SELECT COUNT(DISTINCT did) FROM did_documents").Scan(&count)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return 0, err
 	}
