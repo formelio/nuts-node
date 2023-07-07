@@ -205,10 +205,12 @@ func (s sqlStore) Iterate(fn types.DocIterator) error {
 	}
 
 	// For the last DID, there's no subsequent DID so we need to call the visitor here as well
-	doc, md := s.versionsToDocument(versions, data)
-	err = fn(*doc, *md)
-	if err != nil {
-		return fmt.Errorf("visitor failure: %w", err)
+	if len(versions) > 0 {
+		doc, md := s.versionsToDocument(versions, data)
+		err = fn(*doc, *md)
+		if err != nil {
+			return fmt.Errorf("visitor failure: %w", err)
+		}
 	}
 	return nil
 }
@@ -221,8 +223,13 @@ func (s sqlStore) Resolve(id did.DID, resolveMD *types.ResolveMetadata) (*did.Do
 	if resolveMD != nil {
 		if resolveMD.Hash != nil {
 			queryName = "hash"
-			query = "SELECT tx_ref, data FROM did_documents_current_versions WHERE hash=$1"
+			query = "SELECT tx_ref, data FROM did_documents WHERE hash=$1"
 			queryArgs = []interface{}{resolveMD.Hash.String()}
+		}
+		if resolveMD.SourceTransaction != nil {
+			queryName = "sourceTX"
+			query = "SELECT tx_ref, data FROM did_documents WHERE tx_ref=$1 AND did=$2"
+			queryArgs = []interface{}{resolveMD.SourceTransaction.String(), id.String()}
 		}
 	}
 	if query == "" {
@@ -241,20 +248,6 @@ func (s sqlStore) Resolve(id did.DID, resolveMD *types.ResolveMetadata) (*did.Do
 	// Do we allow deactivated documents?
 	if isDeactivated(*document) && (resolveMD == nil || !resolveMD.AllowDeactivated) {
 		return nil, nil, types.ErrDeactivated
-	}
-	// Do we need to filter on SourceTransaction?
-	if resolveMD != nil && resolveMD.SourceTransaction != nil {
-		var matches bool
-	outer:
-		for _, tx1 := range md.SourceTransactions {
-			if tx1.Equals(*resolveMD.SourceTransaction) {
-				matches = true
-				break outer
-			}
-		}
-		if !matches {
-			return nil, nil, types.ErrNotFound
-		}
 	}
 	return document, md, nil
 }

@@ -419,7 +419,27 @@ func TestSqlStore_Resolve(t *testing.T) {
 		})
 	})
 	t.Run("filter on SourceTransaction", func(t *testing.T) {
-		t.Fatal("TODO")
+		t.Run("resolve first version", func(t *testing.T) {
+			doc, meta, err := store.Resolve(testDID, &types.ResolveMetadata{SourceTransaction: &txCreate.Ref})
+
+			require.NoError(t, err)
+			assert.Len(t, doc.Service, 0)
+			assert.Equal(t, txCreate.PayloadHash, meta.Hash)
+		})
+		t.Run("resolve second version", func(t *testing.T) {
+			doc, meta, err := store.Resolve(testDID, &types.ResolveMetadata{SourceTransaction: &txUpdate.Ref})
+
+			require.NoError(t, err)
+			assert.Len(t, doc.Service, 1)
+			assert.Equal(t, txUpdate.PayloadHash, meta.Hash)
+		})
+		t.Run("does not resolve for different DID", func(t *testing.T) {
+			doc, meta, err := store.Resolve(did.MustParseDID("did:nuts:other"), &types.ResolveMetadata{SourceTransaction: &txUpdate.Ref})
+
+			require.ErrorIs(t, err, types.ErrNotFound)
+			assert.Nil(t, doc)
+			assert.Nil(t, meta)
+		})
 	})
 
 	//
