@@ -113,6 +113,28 @@ type IssueVCRequest struct {
 // This field is mandatory if publishToNetwork is true to prevent accidents. It defaults to "private".
 type IssueVCRequestVisibility string
 
+// OfferVCRequest A request for offering a new Verifiable Credential.
+type OfferVCRequest struct {
+	// Context The resolvable context of the credentialSubject as URI. If omitted, the "https://nuts.nl/credentials/v1" context is used.
+	// Note: it is not needed to provide the "https://www.w3.org/2018/credentials/v1" context here.
+	Context *string `json:"@context,omitempty"`
+
+	// CredentialSubject Subject of a Verifiable Credential identifying the holder and expressing claims.
+	CredentialSubject CredentialSubject `json:"credentialSubject"`
+
+	// ExpirationDate RFC3339 time string until when the credential is valid.
+	ExpirationDate *string `json:"expirationDate,omitempty"`
+
+	// Issuer DID according to Nuts specification.
+	Issuer string `json:"issuer"`
+
+	// Type Type definition for the credential.
+	Type string `json:"type"`
+}
+
+// OfferVCResponse A response for offering a new Verifiable Credential.
+type OfferVCResponse = map[string]interface{}
+
 // SearchOptions defines model for SearchOptions.
 type SearchOptions struct {
 	// AllowUntrustedIssuer If set to true, VCs from an untrusted issuer are returned.
@@ -203,6 +225,9 @@ type CreateVPJSONRequestBody = CreateVPRequest
 
 // IssueVCJSONRequestBody defines body for IssueVC for application/json ContentType.
 type IssueVCJSONRequestBody = IssueVCRequest
+
+// OfferVCJSONRequestBody defines body for OfferVC for application/json ContentType.
+type OfferVCJSONRequestBody = OfferVCRequest
 
 // SearchVCsJSONRequestBody defines body for SearchVCs for application/json ContentType.
 type SearchVCsJSONRequestBody = SearchVCRequest
@@ -302,6 +327,11 @@ type ClientInterface interface {
 
 	IssueVC(ctx context.Context, body IssueVCJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// OfferVC request with any body
+	OfferVCWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	OfferVC(ctx context.Context, body OfferVCJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// SearchIssuedVCs request
 	SearchIssuedVCs(ctx context.Context, params *SearchIssuedVCsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -381,6 +411,30 @@ func (c *Client) IssueVCWithBody(ctx context.Context, contentType string, body i
 
 func (c *Client) IssueVC(ctx context.Context, body IssueVCJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewIssueVCRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) OfferVCWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewOfferVCRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) OfferVC(ctx context.Context, body OfferVCJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewOfferVCRequest(c.Server, body)
 	if err != nil {
 		return nil, err
 	}
@@ -632,6 +686,46 @@ func NewIssueVCRequestWithBody(server string, contentType string, body io.Reader
 	}
 
 	operationPath := fmt.Sprintf("/internal/vcr/v2/issuer/vc")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewOfferVCRequest calls the generic OfferVC builder with application/json body
+func NewOfferVCRequest(server string, body OfferVCJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewOfferVCRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewOfferVCRequestWithBody generates requests for OfferVC with any type of body
+func NewOfferVCRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/internal/vcr/v2/issuer/vc/offer")
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -1113,6 +1207,11 @@ type ClientWithResponsesInterface interface {
 
 	IssueVCWithResponse(ctx context.Context, body IssueVCJSONRequestBody, reqEditors ...RequestEditorFn) (*IssueVCResponse, error)
 
+	// OfferVC request with any body
+	OfferVCWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*OfferVCResponse, error)
+
+	OfferVCWithResponse(ctx context.Context, body OfferVCJSONRequestBody, reqEditors ...RequestEditorFn) (*OfferVCResponse, error)
+
 	// SearchIssuedVCs request
 	SearchIssuedVCsWithResponse(ctx context.Context, params *SearchIssuedVCsParams, reqEditors ...RequestEditorFn) (*SearchIssuedVCsResponse, error)
 
@@ -1212,6 +1311,38 @@ func (r IssueVCResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r IssueVCResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type OfferVCResponse struct {
+	Body                          []byte
+	HTTPResponse                  *http.Response
+	JSON200                       *OfferVCResponse
+	ApplicationproblemJSONDefault *struct {
+		// Detail A human-readable explanation specific to this occurrence of the problem.
+		Detail string `json:"detail"`
+
+		// Status HTTP statuscode
+		Status float32 `json:"status"`
+
+		// Title A short, human-readable summary of the problem type.
+		Title string `json:"title"`
+	}
+}
+
+// Status returns HTTPResponse.Status
+func (r OfferVCResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r OfferVCResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -1570,6 +1701,23 @@ func (c *ClientWithResponses) IssueVCWithResponse(ctx context.Context, body Issu
 	return ParseIssueVCResponse(rsp)
 }
 
+// OfferVCWithBodyWithResponse request with arbitrary body returning *OfferVCResponse
+func (c *ClientWithResponses) OfferVCWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*OfferVCResponse, error) {
+	rsp, err := c.OfferVCWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseOfferVCResponse(rsp)
+}
+
+func (c *ClientWithResponses) OfferVCWithResponse(ctx context.Context, body OfferVCJSONRequestBody, reqEditors ...RequestEditorFn) (*OfferVCResponse, error) {
+	rsp, err := c.OfferVC(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseOfferVCResponse(rsp)
+}
+
 // SearchIssuedVCsWithResponse request returning *SearchIssuedVCsResponse
 func (c *ClientWithResponses) SearchIssuedVCsWithResponse(ctx context.Context, params *SearchIssuedVCsParams, reqEditors ...RequestEditorFn) (*SearchIssuedVCsResponse, error) {
 	rsp, err := c.SearchIssuedVCs(ctx, params, reqEditors...)
@@ -1758,6 +1906,48 @@ func ParseIssueVCResponse(rsp *http.Response) (*IssueVCResponse, error) {
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest VerifiableCredential
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest struct {
+			// Detail A human-readable explanation specific to this occurrence of the problem.
+			Detail string `json:"detail"`
+
+			// Status HTTP statuscode
+			Status float32 `json:"status"`
+
+			// Title A short, human-readable summary of the problem type.
+			Title string `json:"title"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseOfferVCResponse parses an HTTP response from a OfferVCWithResponse call
+func ParseOfferVCResponse(rsp *http.Response) (*OfferVCResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &OfferVCResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest OfferVCResponse
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -2198,6 +2388,10 @@ type ServerInterface interface {
 	// Issues a new Verifiable Credential
 	// (POST /internal/vcr/v2/issuer/vc)
 	IssueVC(ctx echo.Context) error
+	// Offer a Verifiable Credential. It does not directly issue the credential, but only offers it to a wallet.
+	// It is only issued when the wallet retrieves the credential.
+	// (POST /internal/vcr/v2/issuer/vc/offer)
+	OfferVC(ctx echo.Context) error
 	// Searches for verifiable credentials issued by this node which matches the search params
 	// (GET /internal/vcr/v2/issuer/vc/search)
 	SearchIssuedVCs(ctx echo.Context, params SearchIssuedVCsParams) error
@@ -2254,6 +2448,17 @@ func (w *ServerInterfaceWrapper) IssueVC(ctx echo.Context) error {
 
 	// Invoke the callback with all the unmarshalled arguments
 	err = w.Handler.IssueVC(ctx)
+	return err
+}
+
+// OfferVC converts echo context to params.
+func (w *ServerInterfaceWrapper) OfferVC(ctx echo.Context) error {
+	var err error
+
+	ctx.Set(JwtBearerAuthScopes, []string{})
+
+	// Invoke the callback with all the unmarshalled arguments
+	err = w.Handler.OfferVC(ctx)
 	return err
 }
 
@@ -2448,6 +2653,7 @@ func RegisterHandlersWithBaseURL(router EchoRouter, si ServerInterface, baseURL 
 
 	router.POST(baseURL+"/internal/vcr/v2/holder/vp", wrapper.CreateVP)
 	router.POST(baseURL+"/internal/vcr/v2/issuer/vc", wrapper.IssueVC)
+	router.POST(baseURL+"/internal/vcr/v2/issuer/vc/offer", wrapper.OfferVC)
 	router.GET(baseURL+"/internal/vcr/v2/issuer/vc/search", wrapper.SearchIssuedVCs)
 	router.DELETE(baseURL+"/internal/vcr/v2/issuer/vc/:id", wrapper.RevokeVC)
 	router.POST(baseURL+"/internal/vcr/v2/search", wrapper.SearchVCs)
@@ -2531,6 +2737,44 @@ type IssueVCdefaultJSONResponse struct {
 }
 
 func (response IssueVCdefaultJSONResponse) VisitIssueVCResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type OfferVCRequestObject struct {
+	Body *OfferVCJSONRequestBody
+}
+
+type OfferVCResponseObject interface {
+	VisitOfferVCResponse(w http.ResponseWriter) error
+}
+
+type OfferVC200JSONResponse OfferVCResponse
+
+func (response OfferVC200JSONResponse) VisitOfferVCResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type OfferVCdefaultJSONResponse struct {
+	Body struct {
+		// Detail A human-readable explanation specific to this occurrence of the problem.
+		Detail string `json:"detail"`
+
+		// Status HTTP statuscode
+		Status float32 `json:"status"`
+
+		// Title A short, human-readable summary of the problem type.
+		Title string `json:"title"`
+	}
+	StatusCode int
+}
+
+func (response OfferVCdefaultJSONResponse) VisitOfferVCResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(response.StatusCode)
 
@@ -2923,6 +3167,10 @@ type StrictServerInterface interface {
 	// Issues a new Verifiable Credential
 	// (POST /internal/vcr/v2/issuer/vc)
 	IssueVC(ctx context.Context, request IssueVCRequestObject) (IssueVCResponseObject, error)
+	// Offer a Verifiable Credential. It does not directly issue the credential, but only offers it to a wallet.
+	// It is only issued when the wallet retrieves the credential.
+	// (POST /internal/vcr/v2/issuer/vc/offer)
+	OfferVC(ctx context.Context, request OfferVCRequestObject) (OfferVCResponseObject, error)
 	// Searches for verifiable credentials issued by this node which matches the search params
 	// (GET /internal/vcr/v2/issuer/vc/search)
 	SearchIssuedVCs(ctx context.Context, request SearchIssuedVCsRequestObject) (SearchIssuedVCsResponseObject, error)
@@ -3019,6 +3267,35 @@ func (sh *strictHandler) IssueVC(ctx echo.Context) error {
 		return err
 	} else if validResponse, ok := response.(IssueVCResponseObject); ok {
 		return validResponse.VisitIssueVCResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("Unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// OfferVC operation middleware
+func (sh *strictHandler) OfferVC(ctx echo.Context) error {
+	var request OfferVCRequestObject
+
+	var body OfferVCJSONRequestBody
+	if err := ctx.Bind(&body); err != nil {
+		return err
+	}
+	request.Body = &body
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.OfferVC(ctx.Request().Context(), request.(OfferVCRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "OfferVC")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(OfferVCResponseObject); ok {
+		return validResponse.VisitOfferVCResponse(ctx.Response())
 	} else if response != nil {
 		return fmt.Errorf("Unexpected response type: %T", response)
 	}

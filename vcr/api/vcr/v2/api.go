@@ -56,6 +56,42 @@ type Wrapper struct {
 	VCR            vcr.VCR
 }
 
+func (w *Wrapper) OfferVC(ctx context.Context, request OfferVCRequestObject) (OfferVCResponseObject, error) {
+	issuerDID, err := did.ParseDID(request.Body.Issuer)
+	if err != nil {
+		return nil, err
+	}
+	issuer, err := w.VCR.GetOpenIDIssuer(ctx, *issuerDID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Issue VC
+	if request.Body.Context == nil {
+		vcContext := credential.NutsV1Context
+		request.Body.Context = &vcContext
+	}
+	if request.Body.Type == "" {
+		return nil, core.InvalidInputError("missing credential type")
+	}
+	if request.Body.CredentialSubject == nil {
+		return nil, core.InvalidInputError("missing credentialSubject")
+	}
+
+	requestedVC := vc.VerifiableCredential{}
+	rawRequest, _ := json.Marshal(*request.Body)
+	if err := json.Unmarshal(rawRequest, &requestedVC); err != nil {
+		return nil, err
+	}
+
+	vcCreated, err := w.VCR.Issuer().Issue(ctx, requestedVC, false, false)
+	if err != nil {
+		return nil, err
+	}
+
+	issuer.OfferCredential(ctx)
+}
+
 // Routes registers the handler to the echo router
 func (w *Wrapper) Routes(router core.EchoRouter) {
 	RegisterHandlers(router, NewStrictHandler(w, []StrictMiddlewareFunc{

@@ -134,6 +134,36 @@ paths:
                 $ref: '#/components/schemas/VerifiableCredential'
         default:
           $ref: '../common/error_response.yaml'
+  /internal/vcr/v2/issuer/vc/offer:
+    post:
+      summary: |
+        Offer a Verifiable Credential. It does not directly issue the credential, but only offers it to a wallet.
+        It is only issued when the wallet retrieves the credential.
+      description: |
+        Issues a new Verifiable Credential for provided type in the context.
+        
+        error returns:
+        * 400 - One or more of the given parameters are invalid
+        * 412 - A private transaction is issued for a subject that does not have a NutsComm address
+        * 500 - An error occurred while processing the request
+      operationId: "offerVC"
+      tags:
+        - credential
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OfferVCRequest'
+      responses:
+        "200":
+          description: "New VC has been created successfully. Returns the Verifiable Credential."
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OfferVCResponse'
+        default:
+          $ref: '../common/error_response.yaml'
   /internal/vcr/v2/issuer/vc/search:
     get:
       summary: "Searches for verifiable credentials issued by this node which matches the search params"
@@ -472,6 +502,38 @@ components:
             default: private
         credentialSubject:
           $ref: '#/components/schemas/CredentialSubject'
+    OfferVCRequest:
+      type: object
+      description: A request for offering a new Verifiable Credential.
+      required:
+        - type
+        - issuer
+        - credentialSubject
+      properties:
+        "@context":
+          description: |
+            The resolvable context of the credentialSubject as URI. If omitted, the "https://nuts.nl/credentials/v1" context is used.
+            Note: it is not needed to provide the "https://www.w3.org/2018/credentials/v1" context here.
+          type: string
+          example: "http://schema.org"
+          default: "https://nuts.nl/credentials/v1"
+        type:
+          description: Type definition for the credential.
+          type: string
+          example: "NutsOrganizationCredential"
+        issuer:
+          description: DID according to Nuts specification.
+          type: string
+          example: "did:nuts:B8PUHs2AUHbFF1xLLK4eZjgErEcMXHxs68FteY7NDtCY"
+        expirationDate:
+          description: RFC3339 time string until when the credential is valid.
+          type: string
+          example: "2012-01-02T12:00:00Z"
+        credentialSubject:
+          $ref: '#/components/schemas/CredentialSubject'
+    OfferVCResponse:
+      type: object
+      description: A response for offering a new Verifiable Credential.
     SearchVCRequest:
       type: object
       description: request body for searching VCs

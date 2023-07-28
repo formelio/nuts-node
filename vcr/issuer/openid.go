@@ -199,17 +199,16 @@ func (i *openidHandler) HandleAccessTokenRequest(ctx context.Context, preAuthori
 
 func (i *openidHandler) OfferCredential(ctx context.Context, credential vc.VerifiableCredential, walletIdentifier string) error {
 	preAuthorizedCode := generateCode()
-	walletMetadataURL := core.JoinURLPaths(walletIdentifier, openid4vci.WalletMetadataWellKnownPath)
-	log.Logger().
-		WithField(core.LogFieldCredentialID, credential.ID).
-		Infof("Offering credential using OpenID4VCI (client-metadata-url=%s)", walletMetadataURL)
-
-	client, err := i.walletClientCreator(ctx, i.httpClient, walletMetadataURL)
+	offer, err := i.createOffer(ctx, credential, preAuthorizedCode)
 	if err != nil {
 		return err
 	}
 
-	offer, err := i.createOffer(ctx, credential, preAuthorizedCode)
+	walletMetadataURL := core.JoinURLPaths(walletIdentifier, openid4vci.WalletMetadataWellKnownPath)
+	log.Logger().
+		WithField(core.LogFieldCredentialID, credential.ID).
+		Infof("Offering credential using OpenID4VCI (client-metadata-url=%s)", walletMetadataURL)
+	client, err := i.walletClientCreator(ctx, i.httpClient, walletMetadataURL)
 	if err != nil {
 		return err
 	}
