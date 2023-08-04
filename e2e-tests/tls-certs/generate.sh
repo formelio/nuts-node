@@ -38,6 +38,7 @@ function generateCertificate {
 generateCertificate nodeA
 generateCertificate nodeA-backend
 generateCertificate nodeB
+generateCertificate issuer
 
 # Cleanup
 rm ca.key
