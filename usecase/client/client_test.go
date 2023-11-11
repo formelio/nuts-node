@@ -18,7 +18,6 @@ import (
 	"github.com/nuts-foundation/nuts-node/storage"
 	"github.com/nuts-foundation/nuts-node/usecase/model"
 	"github.com/stretchr/testify/require"
-	"gorm.io/gorm/schema"
 	"testing"
 	"time"
 )
@@ -43,25 +42,26 @@ func Test_client_applyDelta(t *testing.T) {
 }
 
 func setupClient(t *testing.T, storageEngine storage.Engine) *client {
-	t.Cleanup(func() {
-		underlyingDB, err := storageEngine.GetSQLDatabase().DB()
-		require.NoError(t, err)
-		tables := []schema.Tabler{
-			&entry{},
-			&credential{},
-			&list{},
-		}
-		for _, table := range tables {
-			_, err = underlyingDB.Exec("DELETE FROM " + table.TableName())
-			require.NoError(t, err)
-		}
-	})
-	// copy testDefinitions to make sure tests don't influence each other
-	testDefinitionsCopy := make(map[string]model.Definition)
-	for k, v := range model.TestDefinitions {
-		testDefinitionsCopy[k] = v
+	//t.Cleanup(func() {
+	//	underlyingDB, err := storageEngine.GetSQLDatabase().DB()
+	//	require.NoError(t, err)
+	//	tables := []schema.Tabler{
+	//		&entry{},
+	//		&credential{},
+	//		&list{},
+	//	}
+	//	for _, table := range tables {
+	//		_, err = underlyingDB.Exec("DELETE FROM " + table.TableName())
+	//		require.NoError(t, err)
+	//	}
+	//})
+	testDefinitions := map[string]model.Definition{
+		model.TestDefinition.ID: model.TestDefinition,
 	}
-	return newClient(storageEngine.GetSQLDatabase(), testDefinitionsCopy)
+
+	c, err := newClient(storageEngine.GetSQLDatabase(), testDefinitions)
+	require.NoError(t, err)
+	return c
 }
 
 var keyPairs map[string]*ecdsa.PrivateKey

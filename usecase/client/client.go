@@ -16,16 +16,30 @@ import (
 	"sync"
 )
 
-func newClient(db *gorm.DB, definitions map[string]model.Definition) *client {
-	return &client{
+func newClient(db *gorm.DB, definitions map[string]model.Definition) (*client, error) {
+	result := &client{
 		db:          db,
 		definitions: definitions,
 	}
+	return result, result.initializeLists()
 }
 
 type client struct {
 	db          *gorm.DB
 	definitions map[string]model.Definition
+}
+
+func (c *client) initializeLists() error {
+	// Creates entries in the list table with initial timestamp, if they don't exist yet
+	for _, definition := range c.definitions {
+		currentList := list{
+			UsecaseID: definition.ID,
+		}
+		if err := c.db.FirstOrCreate(&currentList, "usecase_id = ?", definition.ID).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (c *client) refreshAll() {
@@ -43,7 +57,7 @@ func (c *client) refreshList(definition model.Definition) error {
 	var currentList list
 	if err := c.db.Find(&currentList, "usecase_id = ?", definition.ID).Error; errors.Is(err, gorm.ErrRecordNotFound) {
 		// First refresh of the list
-		if err := c.db.Create(&list{ID: definition.ID}).Error; err != nil {
+		if err := c.db.Create(&list{UsecaseID: definition.ID}).Error; err != nil {
 			return err
 		}
 	} else if err != nil {
@@ -66,7 +80,7 @@ func (c *client) refreshList(definition model.Definition) error {
 	if err = json.Unmarshal(data, &response); err != nil {
 		return err
 	}
-	return c.applyDelta(currentList.ID, response.Entries, response.Tombstone, currentList.Timestamp, response.Timestamp)
+	return c.applyDelta(currentList.UsecaseID, response.Entries, response.Tombstone, currentList.Timestamp, response.Timestamp)
 }
 
 func (c *client) search(usecaseID string, query map[string]string) ([]vc.VerifiablePresentation, error) {

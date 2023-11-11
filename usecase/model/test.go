@@ -26,7 +26,3 @@ var TestDefinition = Definition{
 	},
 	PresentationMaxValidity: int((24 * time.Hour).Seconds()),
 }
-
-var TestDefinitions = map[string]Definition{
-	TestDefinition.ID: TestDefinition,
-}
