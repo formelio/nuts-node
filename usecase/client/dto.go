@@ -2,6 +2,16 @@ package client
 
 import "gorm.io/gorm/schema"
 
+var _ schema.Tabler = (*list)(nil)
+
+// list holds metadata for a use case list.
+type list struct {
+	// ID is the unique identifier list, corresponding with the use case ID
+	ID string `gorm:"primaryKey"`
+	// Timestamp is the last timestamp returned by the server when the list was fetched.
+	Timestamp uint64
+}
+
 // TableName returns the table name for this DTO.
 func (l list) TableName() string {
 	return "usecase_client_list"
@@ -45,21 +55,12 @@ type credential struct {
 	CredentialSubjectID string
 	// CredentialType contains the 'type' property of the Verifiable Credential (not being 'VerifiableCredential').
 	CredentialType *string
+	Properties     []property `gorm:"foreignKey:ID;references:ID"`
 }
 
 // TableName returns the table name for this DTO.
 func (p credential) TableName() string {
 	return "usecase_client_credential"
-}
-
-var _ schema.Tabler = (*list)(nil)
-
-// list holds metadata for a use case list.
-type list struct {
-	// ID is the unique identifier list, corresponding with the use case ID
-	ID string `gorm:"primaryKey"`
-	// Timestamp is the last timestamp returned by the server when the list was fetched.
-	Timestamp uint64
 }
 
 // property is a property of a Verifiable Presentation on a use case list.

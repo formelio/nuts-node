@@ -14,6 +14,7 @@ import (
 	ssi "github.com/nuts-foundation/go-did"
 	"github.com/nuts-foundation/go-did/did"
 	"github.com/nuts-foundation/go-did/vc"
+	"github.com/nuts-foundation/nuts-node/core"
 	"github.com/nuts-foundation/nuts-node/storage"
 	"github.com/nuts-foundation/nuts-node/usecase/model"
 	"github.com/stretchr/testify/require"
@@ -23,8 +24,13 @@ import (
 )
 
 func Test_client_applyDelta(t *testing.T) {
-	storageEngine := storage.NewTestStorageEngine(t)
+	storageEngine := storage.New()
+	storageEngine.(core.Injectable).Config().(*storage.Config).SQL = storage.SQLConfig{ConnectionString: "file:../../data/sqlite.db"}
+	require.NoError(t, storageEngine.Configure(core.TestServerConfig(core.ServerConfig{Datadir: "data"})))
 	require.NoError(t, storageEngine.Start())
+
+	//storageEngine := storage.NewTestStorageEngine(t)
+	//require.NoError(t, storageEngine.Start())
 	t.Cleanup(func() {
 		_ = storageEngine.Shutdown()
 	})

@@ -96,10 +96,11 @@ func (c *client) search(usecaseID string, query map[string]string) ([]vc.Verifia
 			credentialSubjectWhereValues = append(credentialSubjectWhereValues, jsonPath, value)
 		}
 	}
-	c.db.Model(&entry{}).
-		Select("entry.presentation_raw").
-		Joins("left inner join credential ON cred.entry_id = entry.id").
+	//c.db.Model(&entry{}).
+	//	Select("entry.presentation_raw").
+	//	Joins("left inner join credential ON cred.entry_id = entry.id").
 
+	return nil, nil
 }
 
 // applyDelta applies the update, retrieved from the use case list server, to the local index of the use case lists.
@@ -141,15 +142,16 @@ func (c *client) applyDelta(usecaseID string, presentations []vc.VerifiablePrese
 		for _, presentation := range presentations {
 			entryID := uuid.NewString()
 			// Store list entry / verifiable presentation
-			if err := tx.Create(&entry{
+			newEntry := entry{
 				ID:                     entryID,
 				UsecaseID:              usecaseID,
 				PresentationID:         presentation.ID.String(),
 				PresentationRaw:        presentation.Raw(),
 				PresentationExpiration: presentation.JWT().Expiration().Unix(),
-			}).Error; err != nil {
-				return fmt.Errorf("failed to create entry: %w", err)
 			}
+			//if err := tx.Create(listEntry).Error; err != nil {
+			//	return fmt.Errorf("failed to create entry: %w", err)
+			//}
 			// Store the credentials of the presentation
 			for _, curr := range presentation.VerifiableCredential {
 				var credentialType *string
@@ -165,16 +167,18 @@ func (c *client) applyDelta(usecaseID string, presentations []vc.VerifiablePrese
 					return fmt.Errorf("invalid credential subject ID for VP '%s': %w", presentation.ID, err)
 				}
 				credentialRecordID := uuid.NewString()
-				if err := tx.Create(&credential{
+				cred := credential{
 					ID:                  credentialRecordID,
 					EntryID:             entryID,
 					CredentialID:        curr.ID.String(),
 					CredentialIssuer:    curr.Issuer.String(),
 					CredentialSubjectID: subjectDID.String(),
 					CredentialType:      credentialType,
-				}).Error; err != nil {
-					return fmt.Errorf("failed to create credential: %w", err)
 				}
+				newEntry.Credentials = append(newEntry.Credentials, cred)
+				//if err := tx.Create(cred).Error; err != nil {
+				//	return fmt.Errorf("failed to create credential: %w", err)
+				//}
 				if len(curr.CredentialSubject) != 1 {
 					return errors.New("credential must contain exactly one subject")
 				}
@@ -183,14 +187,22 @@ func (c *client) applyDelta(usecaseID string, presentations []vc.VerifiablePrese
 				var values []string
 				indexJSONObject(curr.CredentialSubject[0].(map[string]interface{}), keys, values, "credentialSubject")
 				for i, key := range keys {
-					if err := tx.Create(&property{
+					cred.Properties = append(cred.Properties, property{
 						ID:    credentialRecordID,
 						Key:   key,
 						Value: values[i],
-					}).Error; err != nil {
-						return fmt.Errorf("failed to create property '%s' for credential '%s' in VP '%s': %w", key, curr.ID, presentation.ID, err)
-					}
+					})
+					//if err := tx.Create(&property{
+					//	ID:    credentialRecordID,
+					//	Key:   key,
+					//	Value: values[i],
+					//}).Error; err != nil {
+					//	return fmt.Errorf("failed to create property '%s' for credential '%s' in VP '%s': %w", key, curr.ID, presentation.ID, err)
+					//}
 				}
+			}
+			if err := tx.Create(&newEntry).Error; err != nil {
+				return fmt.Errorf("failed to create entry: %w", err)
 			}
 			// Finally, update the list timestamp
 			if err := tx.Model(&list{}).Where("usecase_id = ?", usecaseID).Update("timestamp", timestamp).Error; err != nil {
