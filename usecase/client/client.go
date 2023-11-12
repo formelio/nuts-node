@@ -13,7 +13,10 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
+	"strings"
 	"sync"
+	"time"
 )
 
 func newClient(db *gorm.DB, definitions map[string]model.Definition) (*client, error) {
@@ -84,37 +87,58 @@ func (c *client) refreshList(definition model.Definition) error {
 }
 
 func (c *client) search(usecaseID string, query map[string]string) ([]vc.VerifiablePresentation, error) {
-	// these are properties that are present as columns
-	var credentialWhereClauses []string
-	var credentialWhereValues []string
-	// these are dynamic credential subject properties
-	var credentialSubjectWhereClauses []string
-	var credentialSubjectWhereValues []string
+	propertyColumns := map[string]string{
+		"id":                   "cred.credential_id",
+		"issuer":               "cred.credential_issuer",
+		"type":                 "cred.credential_type",
+		"credentialSubject.id": "cred.credential_subject_id",
+	}
+
+	stmt := c.db.Model(&entry{}).
+		Where("usecase_id = ?", usecaseID).
+		Joins("inner join usecase_client_credential cred ON cred.entry_id = usecase_client_entries.id")
+	numProps := 0
 	for jsonPath, value := range query {
-		switch jsonPath {
-		case "id":
-			credentialWhereClauses = append(credentialWhereClauses, "credential.credential_id = ?")
-			credentialWhereValues = append(credentialWhereValues, value)
-		case "issuer":
-			credentialWhereClauses = append(credentialWhereClauses, "credential.credential_issuer = ?")
-			credentialWhereValues = append(credentialWhereValues, value)
-		case "type":
-			credentialWhereClauses = append(credentialWhereClauses, "credential.credential_type = ?")
-			credentialWhereValues = append(credentialWhereValues, value)
-		case "credentialSubject.id":
-			credentialWhereClauses = append(credentialWhereClauses, "credential.credential_subject_id = ?")
-			credentialWhereValues = append(credentialWhereValues, value)
-		default:
-			// this property is not present as column, but indexed as key-value property
-			credentialSubjectWhereClauses = append(credentialSubjectWhereClauses, "property.key = ? AND property.value = ?")
-			credentialSubjectWhereValues = append(credentialSubjectWhereValues, jsonPath, value)
+		if value == "*" {
+			continue
+		}
+		// sort out wildcard mode
+		var eq = "="
+		if strings.HasPrefix(value, "*") {
+			value = "%" + value[1:]
+			eq = "LIKE"
+		}
+		if strings.HasSuffix(value, "*") {
+			value = value[:len(value)-1] + "%"
+			eq = "LIKE"
+		}
+		if column := propertyColumns[jsonPath]; column != "" {
+			stmt = stmt.Where(column+" "+eq+" ?", value)
+		} else {
+			// This property is not present as column, but indexed as key-value property.
+			// Multiple (inner) joins to filter on a dynamic number of properties to filter on is not pretty, but it works
+			alias := "p" + strconv.Itoa(numProps)
+			numProps++
+			stmt = stmt.Joins("inner join usecase_client_credential_props "+alias+" ON "+alias+".id = cred.id AND "+alias+".key = ? AND "+alias+".value "+eq+" ?", jsonPath, value)
 		}
 	}
-	//c.db.Model(&entry{}).
-	//	Select("entry.presentation_raw").
-	//	Joins("left inner join credential ON cred.entry_id = entry.id").
 
-	return nil, nil
+	var matches []entry
+	if err := stmt.Find(&matches).Error; err != nil {
+		return nil, err
+	}
+	var results []vc.VerifiablePresentation
+	for _, match := range matches {
+		if match.PresentationExpiration <= time.Now().Unix() {
+			continue
+		}
+		presentation, err := vc.ParseVerifiablePresentation(match.PresentationRaw)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse presentation '%s': %w", match.PresentationID, err)
+		}
+		results = append(results, *presentation)
+	}
+	return results, nil
 }
 
 // applyDelta applies the update, retrieved from the use case list server, to the local index of the use case lists.

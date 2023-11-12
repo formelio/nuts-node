@@ -97,6 +97,167 @@ func Test_client_writePresentation(t *testing.T) {
 	})
 }
 
+func Test_client_search(t *testing.T) {
+	storageEngine := storage.NewTestStorageEngine(t)
+	require.NoError(t, storageEngine.Start())
+	t.Cleanup(func() {
+		_ = storageEngine.Shutdown()
+	})
+
+	type testCase struct {
+		name        string
+		inputVPs    []vc.VerifiablePresentation
+		query       map[string]string
+		expectedVPs []string
+	}
+	testCases := []testCase{
+		{
+			name:     "issuer",
+			inputVPs: []vc.VerifiablePresentation{vpAlice},
+			query: map[string]string{
+				"issuer": authorityDID.String(),
+			},
+			expectedVPs: []string{vpAlice.ID.String()},
+		},
+		{
+			name:     "id",
+			inputVPs: []vc.VerifiablePresentation{vpAlice},
+			query: map[string]string{
+				"id": vcAlice.ID.String(),
+			},
+			expectedVPs: []string{vpAlice.ID.String()},
+		},
+		{
+			name:     "type",
+			inputVPs: []vc.VerifiablePresentation{vpAlice},
+			query: map[string]string{
+				"type": "TestCredential",
+			},
+			expectedVPs: []string{vpAlice.ID.String()},
+		},
+		{
+			name:     "credentialSubject.id",
+			inputVPs: []vc.VerifiablePresentation{vpAlice},
+			query: map[string]string{
+				"credentialSubject.id": aliceDID.String(),
+			},
+			expectedVPs: []string{vpAlice.ID.String()},
+		},
+		{
+			name:     "1 property",
+			inputVPs: []vc.VerifiablePresentation{vpAlice},
+			query: map[string]string{
+				"credentialSubject.person.givenName": "Alice",
+			},
+			expectedVPs: []string{vpAlice.ID.String()},
+		},
+		{
+			name:     "2 properties",
+			inputVPs: []vc.VerifiablePresentation{vpAlice},
+			query: map[string]string{
+				"credentialSubject.person.givenName":  "Alice",
+				"credentialSubject.person.familyName": "Jones",
+			},
+			expectedVPs: []string{vpAlice.ID.String()},
+		},
+		{
+			name:     "properties and base properties",
+			inputVPs: []vc.VerifiablePresentation{vpAlice},
+			query: map[string]string{
+				"issuer":                             authorityDID.String(),
+				"credentialSubject.person.givenName": "Alice",
+			},
+			expectedVPs: []string{vpAlice.ID.String()},
+		},
+		{
+			name:     "wildcard postfix",
+			inputVPs: []vc.VerifiablePresentation{vpAlice, vpBob},
+			query: map[string]string{
+				"credentialSubject.person.familyName": "Jo*",
+			},
+			expectedVPs: []string{vpAlice.ID.String(), vpBob.ID.String()},
+		},
+		{
+			name:     "wildcard prefix",
+			inputVPs: []vc.VerifiablePresentation{vpAlice, vpBob},
+			query: map[string]string{
+				"credentialSubject.person.givenName": "*ce",
+			},
+			expectedVPs: []string{vpAlice.ID.String()},
+		},
+		{
+			name:     "wildcard midway (no interpreted as wildcard)",
+			inputVPs: []vc.VerifiablePresentation{vpAlice, vpBob},
+			query: map[string]string{
+				"credentialSubject.person.givenName": "A*ce",
+			},
+			expectedVPs: []string{},
+		},
+		{
+			name:     "just wildcard",
+			inputVPs: []vc.VerifiablePresentation{vpAlice, vpBob},
+			query: map[string]string{
+				"id": "*",
+			},
+			expectedVPs: []string{vpAlice.ID.String(), vpBob.ID.String()},
+		},
+		{
+			name:     "2 VPs, 1 match",
+			inputVPs: []vc.VerifiablePresentation{vpAlice, vpBob},
+			query: map[string]string{
+				"credentialSubject.person.givenName": "Alice",
+			},
+			expectedVPs: []string{vpAlice.ID.String()},
+		},
+		{
+			name:     "multiple matches",
+			inputVPs: []vc.VerifiablePresentation{vpAlice, vpBob},
+			query: map[string]string{
+				"issuer": authorityDID.String(),
+			},
+			expectedVPs: []string{vpAlice.ID.String(), vpBob.ID.String()},
+		},
+		{
+			name:     "no match",
+			inputVPs: []vc.VerifiablePresentation{vpAlice},
+			query: map[string]string{
+				"credentialSubject.person.givenName": "Bob",
+			},
+			expectedVPs: []string{},
+		},
+		{
+			name: "empty database",
+			query: map[string]string{
+				"credentialSubject.person.givenName": "Bob",
+			},
+			expectedVPs: []string{},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := setupClient(t, storageEngine)
+			for _, vp := range tc.inputVPs {
+				err := c.writePresentation(c.db, model.TestDefinition.ID, vp)
+				require.NoError(t, err)
+			}
+			actualVPs, err := c.search(model.TestDefinition.ID, tc.query)
+			require.NoError(t, err)
+			require.Len(t, actualVPs, len(tc.expectedVPs))
+			for _, expectedVP := range tc.expectedVPs {
+				found := false
+				for _, actualVP := range actualVPs {
+					if actualVP.ID.String() == expectedVP {
+						found = true
+						break
+					}
+				}
+				require.True(t, found, "expected to find VP with ID %s", expectedVP)
+			}
+		})
+	}
+}
+
 func setupClient(t *testing.T, storageEngine storage.Engine) *client {
 	t.Cleanup(func() {
 		underlyingDB, err := storageEngine.GetSQLDatabase().DB()
@@ -127,6 +288,7 @@ var vcAlice vc.VerifiableCredential
 var vpAlice vc.VerifiablePresentation
 var bobDID did.DID
 var vcBob vc.VerifiableCredential
+
 var vpBob vc.VerifiablePresentation
 
 func init() {
