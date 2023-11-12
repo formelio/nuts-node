@@ -177,9 +177,6 @@ func (c *client) writePresentation(tx *gorm.DB, usecaseID string, presentation v
 		PresentationRaw:        presentation.Raw(),
 		PresentationExpiration: presentation.JWT().Expiration().Unix(),
 	}
-	//if err := tx.Create(listEntry).Error; err != nil {
-	//	return fmt.Errorf("failed to create entry: %w", err)
-	//}
 	// Store the credentials of the presentation
 	for _, curr := range presentation.VerifiableCredential {
 		var credentialType *string
@@ -203,9 +200,6 @@ func (c *client) writePresentation(tx *gorm.DB, usecaseID string, presentation v
 			CredentialSubjectID: subjectDID.String(),
 			CredentialType:      credentialType,
 		}
-		//if err := tx.Create(cred).Error; err != nil {
-		//	return fmt.Errorf("failed to create credential: %w", err)
-		//}
 		if len(curr.CredentialSubject) != 1 {
 			return errors.New("credential must contain exactly one subject")
 		}
@@ -221,13 +215,6 @@ func (c *client) writePresentation(tx *gorm.DB, usecaseID string, presentation v
 				Key:   key,
 				Value: values[i],
 			})
-			//if err := tx.Create(&property{
-			//	ID:    credentialRecordID,
-			//	Key:   key,
-			//	Value: values[i],
-			//}).Error; err != nil {
-			//	return fmt.Errorf("failed to create property '%s' for credential '%s' in VP '%s': %w", key, curr.ID, presentation.ID, err)
-			//}
 		}
 		newEntry.Credentials = append(newEntry.Credentials, cred)
 	}
