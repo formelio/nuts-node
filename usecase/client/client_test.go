@@ -17,6 +17,7 @@ import (
 	"github.com/nuts-foundation/nuts-node/storage"
 	"github.com/nuts-foundation/nuts-node/usecase/model"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm/schema"
 	"testing"
 	"time"
 )
@@ -52,12 +53,6 @@ func Test_client_applyDelta(t *testing.T) {
 }
 
 func Test_client_writePresentation(t *testing.T) {
-	type propertyTest struct {
-		credentialID  string
-		expectedKey   string
-		expectedValue string
-	}
-
 	storageEngine := storage.NewTestStorageEngine(t)
 	require.NoError(t, storageEngine.Start())
 	t.Cleanup(func() {
@@ -85,56 +80,37 @@ func Test_client_writePresentation(t *testing.T) {
 		require.Equal(t, aliceDID.String(), cred.CredentialSubjectID)
 		require.Equal(t, vcAlice.Type[1].String(), *cred.CredentialType)
 
-		expectedProperties := []propertyTest{
-			{
-				credentialID:  cred.ID,
-				expectedKey:   "person.givenName",
-				expectedValue: "Alice",
-			},
-			{
-				credentialID:  cred.ID,
-				expectedKey:   "person.familyName",
-				expectedValue: "Jones",
-			},
-			{
-				credentialID:  cred.ID,
-				expectedKey:   "person.city",
-				expectedValue: "InfoSecLand",
+		expectedProperties := map[string]map[string]string{
+			cred.ID: {
+				"credentialSubject.person.givenName":  "Alice",
+				"credentialSubject.person.familyName": "Jones",
+				"credentialSubject.person.city":       "InfoSecLand",
 			},
 		}
-		for _, expectedProperty := range expectedProperties {
-			var properties []property
-			require.NoError(t, c.db.Find(&properties, "id = ? AND key = ?", expectedProperty.credentialID, expectedProperty.expectedKey).Error)
-			require.Len(t, properties, 1)
-			require.Equal(t, expectedProperty.expectedValue, properties[0].Value)
+		for recordID, properties := range expectedProperties {
+			for key, value := range properties {
+				var prop property
+				require.NoError(t, c.db.Find(&prop, "id = ? AND key = ?", recordID, key).Error)
+				require.Equal(t, value, prop.Value)
+			}
 		}
-
-		var aliceProperties []property
-		require.NoError(t, c.db.Find(&aliceProperties).Error)
-		require.Len(t, credentials[0].Properties, 6)
-		require.Equal(t, "person.givenName", credentials[0].Properties[0].Key)
-		require.Equal(t, "person.givenName", credentials[0].Properties[1].Value)
-		require.Equal(t, "person.familyName", credentials[0].Properties[0].Key)
-		require.Equal(t, "person.familyName", credentials[0].Properties[1].Value)
-		require.Equal(t, "person.city", credentials[0].Properties[0].Key)
-		require.Equal(t, "person.city", credentials[0].Properties[1].Value)
 	})
 }
 
 func setupClient(t *testing.T, storageEngine storage.Engine) *client {
-	//t.Cleanup(func() {
-	//	underlyingDB, err := storageEngine.GetSQLDatabase().DB()
-	//	require.NoError(t, err)
-	//	tables := []schema.Tabler{
-	//		&entry{},
-	//		&credential{},
-	//		&list{},
-	//	}
-	//	for _, table := range tables {
-	//		_, err = underlyingDB.Exec("DELETE FROM " + table.TableName())
-	//		require.NoError(t, err)
-	//	}
-	//})
+	t.Cleanup(func() {
+		underlyingDB, err := storageEngine.GetSQLDatabase().DB()
+		require.NoError(t, err)
+		tables := []schema.Tabler{
+			&entry{},
+			&credential{},
+			&list{},
+		}
+		for _, table := range tables {
+			_, err = underlyingDB.Exec("DELETE FROM " + table.TableName())
+			require.NoError(t, err)
+		}
+	})
 	testDefinitions := map[string]model.Definition{
 		model.TestDefinition.ID: model.TestDefinition,
 	}
