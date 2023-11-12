@@ -14,7 +14,6 @@ import (
 	ssi "github.com/nuts-foundation/go-did"
 	"github.com/nuts-foundation/go-did/did"
 	"github.com/nuts-foundation/go-did/vc"
-	"github.com/nuts-foundation/nuts-node/core"
 	"github.com/nuts-foundation/nuts-node/storage"
 	"github.com/nuts-foundation/nuts-node/usecase/model"
 	"github.com/stretchr/testify/require"
@@ -23,21 +22,102 @@ import (
 )
 
 func Test_client_applyDelta(t *testing.T) {
-	storageEngine := storage.New()
-	storageEngine.(core.Injectable).Config().(*storage.Config).SQL = storage.SQLConfig{ConnectionString: "file:../../data/sqlite.db"}
-	require.NoError(t, storageEngine.Configure(core.TestServerConfig(core.ServerConfig{Datadir: "data"})))
-	require.NoError(t, storageEngine.Start())
-
-	//storageEngine := storage.NewTestStorageEngine(t)
+	//storageEngine := storage.New()
+	//storageEngine.(core.Injectable).Config().(*storage.Config).SQL = storage.SQLConfig{ConnectionString: "file:../../data/sqlite.db"}
+	//require.NoError(t, storageEngine.Configure(core.TestServerConfig(core.ServerConfig{Datadir: "data"})))
 	//require.NoError(t, storageEngine.Start())
+
+	storageEngine := storage.NewTestStorageEngine(t)
+	require.NoError(t, storageEngine.Start())
 	t.Cleanup(func() {
 		_ = storageEngine.Shutdown()
 	})
 
-	t.Run("fresh list", func(t *testing.T) {
+	t.Run("fresh list, assert all persisted fields", func(t *testing.T) {
 		c := setupClient(t, storageEngine)
 		err := c.applyDelta(model.TestDefinition.ID, []vc.VerifiablePresentation{vpAlice, vpBob}, []string{"other", "and another"}, 0, 1000)
 		require.NoError(t, err)
+
+		var actualList list
+		require.NoError(t, c.db.Find(&actualList, "usecase_id = ?", model.TestDefinition.ID).Error)
+		require.Equal(t, model.TestDefinition.ID, actualList.UsecaseID)
+		require.Equal(t, uint64(1000), actualList.Timestamp)
+
+		var entries []entry
+		require.NoError(t, c.db.Find(&entries, "usecase_id = ?", model.TestDefinition.ID).Error)
+		require.Len(t, entries, 2)
+		require.Equal(t, vpAlice.ID.String(), entries[0].PresentationID)
+		require.Equal(t, vpBob.ID.String(), entries[1].PresentationID)
+	})
+}
+
+func Test_client_writePresentation(t *testing.T) {
+	type propertyTest struct {
+		credentialID  string
+		expectedKey   string
+		expectedValue string
+	}
+
+	storageEngine := storage.NewTestStorageEngine(t)
+	require.NoError(t, storageEngine.Start())
+	t.Cleanup(func() {
+		_ = storageEngine.Shutdown()
+	})
+
+	t.Run("1 credential", func(t *testing.T) {
+		c := setupClient(t, storageEngine)
+		err := c.writePresentation(c.db, model.TestDefinition.ID, vpAlice)
+		require.NoError(t, err)
+
+		var entries []entry
+		require.NoError(t, c.db.Find(&entries, "usecase_id = ?", model.TestDefinition.ID).Error)
+		require.Len(t, entries, 1)
+		require.Equal(t, vpAlice.ID.String(), entries[0].PresentationID)
+		require.Equal(t, vpAlice.Raw(), entries[0].PresentationRaw)
+		require.Equal(t, vpAlice.JWT().Expiration().Unix(), entries[0].PresentationExpiration)
+
+		var credentials []credential
+		require.NoError(t, c.db.Find(&credentials, "entry_id = ?", entries[0].ID).Error)
+		require.Len(t, credentials, 1)
+		cred := credentials[0]
+		require.Equal(t, vcAlice.ID.String(), cred.CredentialID)
+		require.Equal(t, vcAlice.Issuer.String(), cred.CredentialIssuer)
+		require.Equal(t, aliceDID.String(), cred.CredentialSubjectID)
+		require.Equal(t, vcAlice.Type[1].String(), *cred.CredentialType)
+
+		expectedProperties := []propertyTest{
+			{
+				credentialID:  cred.ID,
+				expectedKey:   "person.givenName",
+				expectedValue: "Alice",
+			},
+			{
+				credentialID:  cred.ID,
+				expectedKey:   "person.familyName",
+				expectedValue: "Jones",
+			},
+			{
+				credentialID:  cred.ID,
+				expectedKey:   "person.city",
+				expectedValue: "InfoSecLand",
+			},
+		}
+		for _, expectedProperty := range expectedProperties {
+			var properties []property
+			require.NoError(t, c.db.Find(&properties, "id = ? AND key = ?", expectedProperty.credentialID, expectedProperty.expectedKey).Error)
+			require.Len(t, properties, 1)
+			require.Equal(t, expectedProperty.expectedValue, properties[0].Value)
+		}
+
+		var aliceProperties []property
+		require.NoError(t, c.db.Find(&aliceProperties).Error)
+		require.Len(t, credentials[0].Properties, 6)
+		require.Equal(t, "person.givenName", credentials[0].Properties[0].Key)
+		require.Equal(t, "person.givenName", credentials[0].Properties[1].Value)
+		require.Equal(t, "person.familyName", credentials[0].Properties[0].Key)
+		require.Equal(t, "person.familyName", credentials[0].Properties[1].Value)
+		require.Equal(t, "person.city", credentials[0].Properties[0].Key)
+		require.Equal(t, "person.city", credentials[0].Properties[1].Value)
 	})
 }
 
@@ -82,33 +162,65 @@ func init() {
 	bobDID = did.MustParseDID("did:example:bob")
 	keyPairs[bobDID.String()], _ = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 
-	vcAlice = createCredential(authorityDID, aliceDID)
+	vcAlice = createCredentialWithClaims(authorityDID, aliceDID, func() []interface{} {
+		return []interface{}{
+			map[string]interface{}{
+				"id": aliceDID.String(),
+				"person": map[string]interface{}{
+					"givenName":  "Alice",
+					"familyName": "Jones",
+					"city":       "InfoSecLand",
+				},
+			},
+		}
+	}, func(m map[string]interface{}) {
+		// do nothing
+	})
 	vpAlice = createPresentation(aliceDID, vcAlice)
-	vcBob = createCredential(authorityDID, bobDID)
+	vcBob = createCredentialWithClaims(authorityDID, bobDID, func() []interface{} {
+		return []interface{}{
+			map[string]interface{}{
+				"id": aliceDID.String(),
+				"person": map[string]interface{}{
+					"givenName":  "Bob",
+					"familyName": "Johansson",
+					"city":       "InfoSecLand",
+				},
+			},
+		}
+	}, func(m map[string]interface{}) {
+		// do nothing
+	})
 	vpBob = createPresentation(bobDID, vcBob)
 }
 
 func createCredential(issuerDID did.DID, subjectDID did.DID) vc.VerifiableCredential {
-	return createCredentialWithClaims(issuerDID, subjectDID, func(claims map[string]interface{}) {
-		// do nothing
-	})
+	return createCredentialWithClaims(issuerDID, subjectDID,
+		func() []interface{} {
+			return []interface{}{
+				map[string]interface{}{
+					"id": subjectDID.String(),
+				},
+			}
+		},
+		func(claims map[string]interface{}) {
+			// do nothing
+		})
 }
 
-func createCredentialWithClaims(issuerDID did.DID, subjectDID did.DID, claimVisitor func(map[string]interface{})) vc.VerifiableCredential {
+func createCredentialWithClaims(issuerDID did.DID, subjectDID did.DID, credentialSubjectCreator func() []interface{}, claimVisitor func(map[string]interface{})) vc.VerifiableCredential {
 	vcID := did.DIDURL{DID: issuerDID}
 	vcID.Fragment = uuid.NewString()
 	vcIDURI := vcID.URI()
 	expirationDate := time.Now().Add(time.Hour * 24)
+
 	result, err := vc.CreateJWTVerifiableCredential(context.Background(), vc.VerifiableCredential{
-		ID:             &vcIDURI,
-		Issuer:         issuerDID.URI(),
-		IssuanceDate:   time.Now(),
-		ExpirationDate: &expirationDate,
-		CredentialSubject: []interface{}{
-			map[string]interface{}{
-				"id": subjectDID.String(),
-			},
-		},
+		ID:                &vcIDURI,
+		Issuer:            issuerDID.URI(),
+		Type:              []ssi.URI{ssi.MustParseURI("VerifiableCredential"), ssi.MustParseURI("TestCredential")},
+		IssuanceDate:      time.Now(),
+		ExpirationDate:    &expirationDate,
+		CredentialSubject: credentialSubjectCreator(),
 	}, func(ctx context.Context, claims map[string]interface{}, headers map[string]interface{}) (string, error) {
 		claimVisitor(claims)
 		return signJWT(subjectDID, claims, headers)

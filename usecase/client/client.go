@@ -154,82 +154,92 @@ func (c *client) applyDelta(usecaseID string, presentations []vc.VerifiablePrese
 			}
 		}
 		for _, presentation := range presentations {
-			entryID := uuid.NewString()
-			// Store list entry / verifiable presentation
-			newEntry := entry{
-				ID:                     entryID,
-				UsecaseID:              usecaseID,
-				PresentationID:         presentation.ID.String(),
-				PresentationRaw:        presentation.Raw(),
-				PresentationExpiration: presentation.JWT().Expiration().Unix(),
+			err := c.writePresentation(tx, usecaseID, presentation)
+			if err != nil {
+				return err
 			}
-			//if err := tx.Create(listEntry).Error; err != nil {
-			//	return fmt.Errorf("failed to create entry: %w", err)
-			//}
-			// Store the credentials of the presentation
-			for _, curr := range presentation.VerifiableCredential {
-				var credentialType *string
-				for _, currType := range curr.Type {
-					if currType.String() != "VerifiableCredential" {
-						credentialType = new(string)
-						*credentialType = currType.String()
-						break
-					}
-				}
-				subjectDID, err := curr.SubjectDID()
-				if err != nil {
-					return fmt.Errorf("invalid credential subject ID for VP '%s': %w", presentation.ID, err)
-				}
-				credentialRecordID := uuid.NewString()
-				cred := credential{
-					ID:                  credentialRecordID,
-					EntryID:             entryID,
-					CredentialID:        curr.ID.String(),
-					CredentialIssuer:    curr.Issuer.String(),
-					CredentialSubjectID: subjectDID.String(),
-					CredentialType:      credentialType,
-				}
-				newEntry.Credentials = append(newEntry.Credentials, cred)
-				//if err := tx.Create(cred).Error; err != nil {
-				//	return fmt.Errorf("failed to create credential: %w", err)
-				//}
-				if len(curr.CredentialSubject) != 1 {
-					return errors.New("credential must contain exactly one subject")
-				}
-				// Store credential properties
-				var keys []string
-				var values []string
-				indexJSONObject(curr.CredentialSubject[0].(map[string]interface{}), keys, values, "credentialSubject")
-				for i, key := range keys {
-					cred.Properties = append(cred.Properties, property{
-						ID:    credentialRecordID,
-						Key:   key,
-						Value: values[i],
-					})
-					//if err := tx.Create(&property{
-					//	ID:    credentialRecordID,
-					//	Key:   key,
-					//	Value: values[i],
-					//}).Error; err != nil {
-					//	return fmt.Errorf("failed to create property '%s' for credential '%s' in VP '%s': %w", key, curr.ID, presentation.ID, err)
-					//}
-				}
-			}
-			if err := tx.Create(&newEntry).Error; err != nil {
-				return fmt.Errorf("failed to create entry: %w", err)
-			}
-			// Finally, update the list timestamp
-			if err := tx.Model(&list{}).Where("usecase_id = ?", usecaseID).Update("timestamp", timestamp).Error; err != nil {
-				return fmt.Errorf("failed to update timestamp: %w", err)
-			}
+		}
+		// Finally, update the list timestamp
+		if err := tx.Model(&list{}).Where("usecase_id = ?", usecaseID).Update("timestamp", timestamp).Error; err != nil {
+			return fmt.Errorf("failed to update timestamp: %w", err)
 		}
 		return nil
 	})
 }
 
+func (c *client) writePresentation(tx *gorm.DB, usecaseID string, presentation vc.VerifiablePresentation) error {
+	entryID := uuid.NewString()
+	// Store list entry / verifiable presentation
+	newEntry := entry{
+		ID:                     entryID,
+		UsecaseID:              usecaseID,
+		PresentationID:         presentation.ID.String(),
+		PresentationRaw:        presentation.Raw(),
+		PresentationExpiration: presentation.JWT().Expiration().Unix(),
+	}
+	//if err := tx.Create(listEntry).Error; err != nil {
+	//	return fmt.Errorf("failed to create entry: %w", err)
+	//}
+	// Store the credentials of the presentation
+	for _, curr := range presentation.VerifiableCredential {
+		var credentialType *string
+		for _, currType := range curr.Type {
+			if currType.String() != "VerifiableCredential" {
+				credentialType = new(string)
+				*credentialType = currType.String()
+				break
+			}
+		}
+		subjectDID, err := curr.SubjectDID()
+		if err != nil {
+			return fmt.Errorf("invalid credential subject ID for VP '%s': %w", presentation.ID, err)
+		}
+		credentialRecordID := uuid.NewString()
+		cred := credential{
+			ID:                  credentialRecordID,
+			EntryID:             entryID,
+			CredentialID:        curr.ID.String(),
+			CredentialIssuer:    curr.Issuer.String(),
+			CredentialSubjectID: subjectDID.String(),
+			CredentialType:      credentialType,
+		}
+		//if err := tx.Create(cred).Error; err != nil {
+		//	return fmt.Errorf("failed to create credential: %w", err)
+		//}
+		if len(curr.CredentialSubject) != 1 {
+			return errors.New("credential must contain exactly one subject")
+		}
+		// Store credential properties
+		keys, values := indexJSONObject(curr.CredentialSubject[0].(map[string]interface{}), nil, nil, "credentialSubject")
+		for i, key := range keys {
+			if key == "credentialSubject.id" {
+				// present as column, don't index
+				continue
+			}
+			cred.Properties = append(cred.Properties, property{
+				ID:    credentialRecordID,
+				Key:   key,
+				Value: values[i],
+			})
+			//if err := tx.Create(&property{
+			//	ID:    credentialRecordID,
+			//	Key:   key,
+			//	Value: values[i],
+			//}).Error; err != nil {
+			//	return fmt.Errorf("failed to create property '%s' for credential '%s' in VP '%s': %w", key, curr.ID, presentation.ID, err)
+			//}
+		}
+		newEntry.Credentials = append(newEntry.Credentials, cred)
+	}
+	if err := tx.Create(&newEntry).Error; err != nil {
+		return fmt.Errorf("failed to create entry: %w", err)
+	}
+	return nil
+}
+
 // indexJSONObject indexes a JSON object, resulting in a slice of JSON paths and corresponding string values.
 // It only traverses JSON objects and only adds string values to the result.
-func indexJSONObject(target map[string]interface{}, jsonPaths []string, stringValues []string, currentPath string) {
+func indexJSONObject(target map[string]interface{}, jsonPaths []string, stringValues []string, currentPath string) ([]string, []string) {
 	for key, value := range target {
 		thisPath := currentPath
 		if len(thisPath) > 0 {
@@ -242,9 +252,10 @@ func indexJSONObject(target map[string]interface{}, jsonPaths []string, stringVa
 			jsonPaths = append(jsonPaths, thisPath)
 			stringValues = append(stringValues, typedValue)
 		case map[string]interface{}:
-			indexJSONObject(typedValue, jsonPaths, stringValues, thisPath)
+			jsonPaths, stringValues = indexJSONObject(typedValue, jsonPaths, stringValues, thisPath)
 		default:
 			// other values (arrays, booleans, numbers, null) are not indexed
 		}
 	}
+	return jsonPaths, stringValues
 }

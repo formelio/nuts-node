@@ -32,6 +32,11 @@ import (
 const SQLiteInMemoryConnectionString = "file::memory:?cache=shared"
 
 func NewTestStorageEngineInDir(dir string) Engine {
+	//storageEngine := storage.New()
+	//storageEngine.(core.Injectable).Config().(*storage.Config).SQL = storage.SQLConfig{ConnectionString: "file:../../data/sqlite.db"}
+	//require.NoError(t, storageEngine.Configure(core.TestServerConfig(core.ServerConfig{Datadir: "data"})))
+	//require.NoError(t, storageEngine.Start())
+
 	result := New().(*engine)
 	result.config.SQL = SQLConfig{ConnectionString: SQLiteInMemoryConnectionString}
 	_ = result.Configure(core.TestServerConfig(core.ServerConfig{Datadir: dir + "/data"}))

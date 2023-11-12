@@ -75,5 +75,5 @@ type property struct {
 
 // TableName returns the table name for this DTO.
 func (l property) TableName() string {
-	return "usecase_client_presentation_props"
+	return "usecase_client_credential_props"
 }
