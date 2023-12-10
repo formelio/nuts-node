@@ -1,0 +1,19 @@
+url: https://server
+verbosity: debug
+strictmode: false
+datadir: /opt/nuts/data
+http:
+  default:
+    address: :1323
+discovery:
+  definitions: /opt/nuts/definitions
+auth:
+  v2apienabled: true
+  contractvalidators:
+    - dummy
+  irma:
+    autoupdateschemas: false
+tls:
+  truststorefile: /opt/nuts/truststore.pem
+  certfile: /opt/nuts/certificate-and-key.pem
+  certkeyfile: /opt/nuts/certificate-and-key.pem

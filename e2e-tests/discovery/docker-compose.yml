@@ -1,0 +1,31 @@
+version: "3.7"
+services:
+  server:
+    image: "${IMAGE_NODE_A:-nutsfoundation/nuts-node:local}"
+    ports:
+      - "11323:1323"
+    environment:
+      NUTS_CONFIGFILE: /opt/nuts/nuts.yaml
+    volumes:
+      - "./node-A/nuts.yaml:/opt/nuts/nuts.yaml:ro"
+      - "./node-A/data:/opt/nuts/data:rw"
+      - "../../tls-certs/nodeA-backend-certificate.pem:/opt/nuts/certificate-and-key.pem:ro"
+      - "../../tls-certs/truststore.pem:/opt/nuts/truststore.pem:ro"
+      - "./definitions:/opt/nuts/definitions:ro"
+    healthcheck:
+      interval: 1s # Make test run quicker by checking health status more often
+  client:
+    image: "${IMAGE_NODE_B:-nutsfoundation/nuts-node:local}"
+    ports:
+      - "21323:1323"
+    environment:
+      NUTS_CONFIGFILE: /opt/nuts/nuts.yaml
+    volumes:
+      - "./node-B/data:/opt/nuts/data:rw"
+      - "./node-B/nuts.yaml:/opt/nuts/nuts.yaml:ro"
+      - "../../tls-certs/nodeB-certificate.pem:/opt/nuts/certificate-and-key.pem:ro"
+      - "../../tls-certs/truststore.pem:/opt/nuts/truststore.pem:ro"
+      - "../../tls-certs/truststore.pem:/etc/ssl/certs/truststore.pem:ro"
+      - "./definitions:/opt/nuts/definitions:ro"
+    healthcheck:
+      interval: 1s # Make test run quicker by checking health status more often
