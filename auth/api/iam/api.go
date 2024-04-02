@@ -553,7 +553,7 @@ func (r Wrapper) RequestUserAccessToken(ctx context.Context, request RequestUser
 		return nil, err
 	}
 
-	// TODO: When we support authentication at an external IdP,
+	// Note: When we support authentication at an external IdP,
 	//       the properties below become conditionally required.
 	if request.Body.PreauthorizedUser == nil {
 		return nil, core.InvalidInputError("missing preauthorized_user")
@@ -611,7 +611,6 @@ func createSession(params oauthParameters, ownDID did.DID) *OAuthSession {
 	session.ClientID = params.get(oauth.ClientIDParam)
 	session.Scope = params.get(oauth.ScopeParam)
 	session.ClientState = params.get(oauth.StateParam)
-	session.ServerState = ServerState{}
 	session.RedirectURI = params.get(oauth.RedirectURIParam)
 	session.OwnDID = &ownDID
 	session.ResponseType = params.get(oauth.ResponseTypeParam)

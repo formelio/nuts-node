@@ -83,20 +83,9 @@ func (r Wrapper) validatePresentationAudience(presentation vc.VerifiablePresenta
 //
 // Errors are returned as OAuth2 errors.
 func (r Wrapper) validatePresentationSubmission(ctx context.Context, authorizer did.DID, scope string, submission *pe.PresentationSubmission, pexEnvelope *pe.Envelope) (map[string]vc.VerifiableCredential, *PresentationDefinition, error) {
-	mapping, err := r.policyBackend.PresentationDefinitions(ctx, authorizer, scope)
+	mapping, err := r.presentationDefinitionForScope(ctx, authorizer, scope)
 	if err != nil {
-		if errors.Is(err, policy.ErrNotFound) {
-			return nil, nil, oauth.OAuth2Error{
-				Code:          oauth.InvalidScope,
-				InternalError: err,
-				Description:   fmt.Sprintf("unsupported scope (%s) for presentation exchange: %s", scope, err.Error()),
-			}
-		}
-		return nil, nil, oauth.OAuth2Error{
-			Code:          oauth.ServerError,
-			InternalError: err,
-			Description:   fmt.Sprintf("failed to retrieve presentation definition for scope (%s): %s", scope, err.Error()),
-		}
+		return nil, nil, err
 	}
 
 	// todo, for now take the organization definition
@@ -115,4 +104,23 @@ func (r Wrapper) validatePresentationSubmission(ctx context.Context, authorizer 
 		}
 	}
 	return credentialMap, &definition, err
+}
+
+func (r Wrapper) presentationDefinitionForScope(ctx context.Context, authorizer did.DID, scope string) (pe.WalletOwnerMapping, error) {
+	mapping, err := r.policyBackend.PresentationDefinitions(ctx, authorizer, scope)
+	if err != nil {
+		if errors.Is(err, policy.ErrNotFound) {
+			return nil, oauth.OAuth2Error{
+				Code:          oauth.InvalidScope,
+				InternalError: err,
+				Description:   fmt.Sprintf("unsupported scope (%s) for presentation exchange: %s", scope, err.Error()),
+			}
+		}
+		return nil, oauth.OAuth2Error{
+			Code:          oauth.ServerError,
+			InternalError: err,
+			Description:   fmt.Sprintf("failed to retrieve presentation definition for scope (%s): %s", scope, err.Error()),
+		}
+	}
+	return mapping, err
 }
