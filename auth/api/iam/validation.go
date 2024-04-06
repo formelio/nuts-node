@@ -88,22 +88,25 @@ func (r Wrapper) validatePresentationSubmission(ctx context.Context, authorizer 
 		return nil, nil, err
 	}
 
-	// todo, for now take the organization definition
-	var definition PresentationDefinition
-	var ok bool
-	if definition, ok = mapping[pe.WalletOwnerOrganization]; !ok {
-		return nil, nil, oauthError(oauth.ServerError, "no presentation definition found for organization wallet")
+	// Find the Presentation Definition referenced by the Submission in the mapping
+	var definition *PresentationDefinition
+	for _, curr := range mapping {
+		if curr.Id == submission.DefinitionId {
+			definition = &curr
+		}
 	}
-
-	credentialMap, err := submission.Validate(*pexEnvelope, mapping[pe.WalletOwnerOrganization])
+	if definition == nil {
+		return nil, nil, oauthError(oauth.InvalidRequest, "Presentation Submission references Presentation Definition that isn't requested")
+	}
+	credentialMap, err := submission.Validate(*pexEnvelope, *definition)
 	if err != nil {
 		return nil, nil, oauth.OAuth2Error{
 			Code:          oauth.InvalidRequest,
-			Description:   "presentation submission does not conform to Presentation Definition",
+			Description:   fmt.Sprintf("Presentation Submission does not conform to Presentation Definition (id=%s)", definition.Id),
 			InternalError: err,
 		}
 	}
-	return credentialMap, &definition, err
+	return credentialMap, definition, err
 }
 
 func (r Wrapper) presentationDefinitionForScope(ctx context.Context, authorizer did.DID, scope string) (pe.WalletOwnerMapping, error) {

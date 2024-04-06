@@ -36,6 +36,11 @@ import (
 
 var nodeClientConfig = core.ClientConfig{Address: "http://localhost:8081"}
 
+func init() {
+	os.Setenv("SHOW_BROWSER", "true")
+	os.Setenv("KEEP_BROWSER_OPEN", "true")
+}
+
 func Test_UserAccessToken_EmployeeCredential(t *testing.T) {
 	const oauth2Scope = "zorgtoepassing"
 
@@ -43,7 +48,7 @@ func Test_UserAccessToken_EmployeeCredential(t *testing.T) {
 	ctx, cancel := browser.NewChrome(headless)
 	defer func() {
 		if t.Failed() && !headless {
-			duration := 10 * time.Second
+			duration := time.Minute
 			t.Logf("Test failed, keeping browser open for %s", duration)
 			time.Sleep(duration)
 		}
@@ -66,6 +71,8 @@ func Test_UserAccessToken_EmployeeCredential(t *testing.T) {
 		ctx:       ctx,
 		iamClient: iamClient,
 	}
+	err = chromedp.Run(ctx, chromedp.Navigate("about:blank"))
+	require.NoError(t, err)
 	// Request an access token with user from verifying organization
 	userDetails := iamAPI.UserDetails{
 		Id:   "jdoe@example.com",
@@ -115,5 +122,5 @@ func Test_UserAccessToken_EmployeeCredential(t *testing.T) {
 
 func createDID(id string) (*did.Document, error) {
 	didClient := didAPI.HTTPClient{ClientConfig: apps.NodeClientConfig}
-	return didClient.Create(didAPI.CreateDIDOptions{Id: &id})
+	return didClient.Create(didAPI.CreateDIDOptions{Tenant: &id})
 }

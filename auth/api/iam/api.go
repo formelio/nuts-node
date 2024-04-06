@@ -35,6 +35,7 @@ import (
 	"github.com/nuts-foundation/nuts-node/core"
 	"github.com/nuts-foundation/nuts-node/crypto"
 	http2 "github.com/nuts-foundation/nuts-node/http"
+	"github.com/nuts-foundation/nuts-node/jsonld"
 	"github.com/nuts-foundation/nuts-node/policy"
 	"github.com/nuts-foundation/nuts-node/storage"
 	"github.com/nuts-foundation/nuts-node/vcr"
@@ -78,18 +79,22 @@ type Wrapper struct {
 	auth          auth.AuthenticationServices
 	policyBackend policy.PDPBackend
 	storageEngine storage.Engine
+	JSONLDManager jsonld.JSONLD
 	keyStore      crypto.KeyStore
 	vcr           vcr.VCR
 	vdr           vdr.VDR
 }
 
-func New(authInstance auth.AuthenticationServices, vcrInstance vcr.VCR, vdrInstance vdr.VDR, storageEngine storage.Engine, policyBackend policy.PDPBackend) *Wrapper {
+func New(
+	authInstance auth.AuthenticationServices, vcrInstance vcr.VCR, vdrInstance vdr.VDR, storageEngine storage.Engine,
+	policyBackend policy.PDPBackend, jsonldManager jsonld.JSONLD) *Wrapper {
 	return &Wrapper{
 		auth:          authInstance,
 		policyBackend: policyBackend,
 		storageEngine: storageEngine,
 		vcr:           vcrInstance,
 		vdr:           vdrInstance,
+		JSONLDManager: jsonldManager,
 	}
 }
 
@@ -304,14 +309,19 @@ func (r Wrapper) HandleAuthorizeRequest(ctx context.Context, request HandleAutho
 
 	// if the request param is present, JAR (RFC9101, JWT Authorization Request) is used
 	// we parse the request and validate
+	var requestObject oauthParameters
 	if rawToken := params.get(oauth.RequestParam); rawToken != "" {
-		params, err = r.validateJARRequest(ctx, rawToken, clientId)
+		requestObject, err = r.validateJARRequest(ctx, rawToken, clientId)
 		if err != nil {
 			return nil, err
 		}
-	} // else, we'll allow for now, since other flows will break if we require JAR at this point.
+	} else {
+		// else, we'll allow for now, since other flows will break if we require JAR at this point.
+		requestObject = params
+	}
 
-	session := createSession(params, *ownDID)
+	// todo: store session in database? Isn't session specific for a particular flow?
+	session := createSession(requestObject, *ownDID)
 
 	switch session.ResponseType {
 	case responseTypeCode:
@@ -329,7 +339,7 @@ func (r Wrapper) HandleAuthorizeRequest(ctx context.Context, request HandleAutho
 		clientId := session.ClientID
 		if strings.HasPrefix(clientId, "did:web:") {
 			// client is a cloud wallet with user
-			return r.handleAuthorizeRequestFromHolder(ctx, *ownDID, params)
+			return r.handleAuthorizeRequestFromHolder(ctx, *ownDID, requestObject)
 		} else {
 			return nil, oauth.OAuth2Error{
 				Code:        oauth.InvalidRequest,
@@ -339,7 +349,8 @@ func (r Wrapper) HandleAuthorizeRequest(ctx context.Context, request HandleAutho
 	case responseTypeVPToken:
 		// Options:
 		// - OpenID4VP flow, vp_token is sent in Authorization Response
-		return r.handleAuthorizeRequestFromVerifier(ctx, *ownDID, params)
+
+		return r.handleAuthorizeRequestFromVerifier(ctx, *ownDID, requestObject, params)
 	default:
 		// TODO: This should be a redirect?
 		redirectURI, _ := url.Parse(session.RedirectURI)

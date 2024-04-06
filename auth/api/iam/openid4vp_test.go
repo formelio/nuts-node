@@ -168,7 +168,7 @@ func TestWrapper_handleAuthorizeRequestFromVerifier(t *testing.T) {
 		params[oauth.ClientIDParam] = "did:nuts:1"
 		expectPostError(t, ctx, oauth.InvalidRequest, "invalid client_id parameter (only did:web is supported)", responseURI, "state")
 
-		_, err := ctx.client.handleAuthorizeRequestFromVerifier(context.Background(), holderDID, params)
+		_, err := ctx.client.handleAuthorizeRequestFromVerifier(context.Background(), holderDID, params, nil)
 
 		require.NoError(t, err)
 	})
@@ -178,7 +178,7 @@ func TestWrapper_handleAuthorizeRequestFromVerifier(t *testing.T) {
 		params[clientIDSchemeParam] = "other"
 		expectPostError(t, ctx, oauth.InvalidRequest, "invalid client_id_scheme parameter", responseURI, "state")
 
-		_, err := ctx.client.handleAuthorizeRequestFromVerifier(context.Background(), holderDID, params)
+		_, err := ctx.client.handleAuthorizeRequestFromVerifier(context.Background(), holderDID, params, nil)
 
 		require.NoError(t, err)
 	})
@@ -188,7 +188,7 @@ func TestWrapper_handleAuthorizeRequestFromVerifier(t *testing.T) {
 		ctx.iamClient.EXPECT().ClientMetadata(gomock.Any(), "https://example.com/.well-known/authorization-server/iam/verifier").Return(nil, assert.AnError)
 		expectPostError(t, ctx, oauth.ServerError, "failed to get client metadata (verifier)", responseURI, "state")
 
-		_, err := ctx.client.handleAuthorizeRequestFromVerifier(context.Background(), holderDID, params)
+		_, err := ctx.client.handleAuthorizeRequestFromVerifier(context.Background(), holderDID, params, nil)
 
 		require.NoError(t, err)
 	})
@@ -198,7 +198,7 @@ func TestWrapper_handleAuthorizeRequestFromVerifier(t *testing.T) {
 		delete(params, oauth.NonceParam)
 		expectPostError(t, ctx, oauth.InvalidRequest, "missing nonce parameter", responseURI, "state")
 
-		_, err := ctx.client.handleAuthorizeRequestFromVerifier(context.Background(), holderDID, params)
+		_, err := ctx.client.handleAuthorizeRequestFromVerifier(context.Background(), holderDID, params, nil)
 
 		require.NoError(t, err)
 	})
@@ -208,7 +208,7 @@ func TestWrapper_handleAuthorizeRequestFromVerifier(t *testing.T) {
 		ctx.iamClient.EXPECT().ClientMetadata(gomock.Any(), "https://example.com/.well-known/authorization-server/iam/verifier").Return(nil, assert.AnError)
 		expectPostError(t, ctx, oauth.ServerError, "failed to get client metadata (verifier)", responseURI, "state")
 
-		_, err := ctx.client.handleAuthorizeRequestFromVerifier(context.Background(), holderDID, params)
+		_, err := ctx.client.handleAuthorizeRequestFromVerifier(context.Background(), holderDID, params, nil)
 
 		require.NoError(t, err)
 	})
@@ -217,7 +217,7 @@ func TestWrapper_handleAuthorizeRequestFromVerifier(t *testing.T) {
 		params := defaultParams()
 		delete(params, responseModeParam)
 
-		_, err := ctx.client.handleAuthorizeRequestFromVerifier(context.Background(), holderDID, params)
+		_, err := ctx.client.handleAuthorizeRequestFromVerifier(context.Background(), holderDID, params, nil)
 
 		assert.EqualError(t, err, "invalid_request - invalid response_mode parameter")
 	})
@@ -226,7 +226,7 @@ func TestWrapper_handleAuthorizeRequestFromVerifier(t *testing.T) {
 		params := defaultParams()
 		delete(params, responseURIParam)
 
-		_, err := ctx.client.handleAuthorizeRequestFromVerifier(context.Background(), holderDID, params)
+		_, err := ctx.client.handleAuthorizeRequestFromVerifier(context.Background(), holderDID, params, nil)
 
 		assert.EqualError(t, err, "invalid_request - missing response_uri parameter")
 	})
@@ -235,7 +235,7 @@ func TestWrapper_handleAuthorizeRequestFromVerifier(t *testing.T) {
 		params := defaultParams()
 		delete(params, responseURIParam)
 
-		_, err := ctx.client.handleAuthorizeRequestFromVerifier(context.Background(), holderDID, params)
+		_, err := ctx.client.handleAuthorizeRequestFromVerifier(context.Background(), holderDID, params, nil)
 
 		require.Error(t, err)
 	})
@@ -247,7 +247,7 @@ func TestWrapper_handleAuthorizeRequestFromVerifier(t *testing.T) {
 		ctx.iamClient.EXPECT().PresentationDefinition(gomock.Any(), pdEndpoint).Return(nil, assert.AnError)
 		expectPostError(t, ctx, oauth.InvalidPresentationDefinitionURI, "failed to retrieve presentation definition on https://example.com/iam/verifier/presentation_definition?scope=test", responseURI, "state")
 
-		_, err := ctx.client.handleAuthorizeRequestFromVerifier(context.Background(), holderDID, params)
+		_, err := ctx.client.handleAuthorizeRequestFromVerifier(context.Background(), holderDID, params, nil)
 
 		require.NoError(t, err)
 	})
@@ -260,7 +260,7 @@ func TestWrapper_handleAuthorizeRequestFromVerifier(t *testing.T) {
 		ctx.wallet.EXPECT().BuildSubmission(gomock.Any(), holderDID, pe.PresentationDefinition{}, clientMetadata.VPFormats, gomock.Any()).Return(nil, nil, assert.AnError)
 		expectPostError(t, ctx, oauth.ServerError, assert.AnError.Error(), responseURI, "state")
 
-		_, err := ctx.client.handleAuthorizeRequestFromVerifier(context.Background(), holderDID, params)
+		_, err := ctx.client.handleAuthorizeRequestFromVerifier(context.Background(), holderDID, params, nil)
 
 		require.NoError(t, err)
 	})
@@ -273,7 +273,7 @@ func TestWrapper_handleAuthorizeRequestFromVerifier(t *testing.T) {
 		ctx.wallet.EXPECT().BuildSubmission(gomock.Any(), holderDID, pe.PresentationDefinition{}, clientMetadata.VPFormats, gomock.Any()).Return(nil, nil, holder.ErrNoCredentials)
 		expectPostError(t, ctx, oauth.InvalidRequest, "no credentials available", responseURI, "state")
 
-		_, err := ctx.client.handleAuthorizeRequestFromVerifier(context.Background(), holderDID, params)
+		_, err := ctx.client.handleAuthorizeRequestFromVerifier(context.Background(), holderDID, params, nil)
 
 		require.NoError(t, err)
 	})
@@ -751,7 +751,7 @@ func TestWrapper_sendAndHandleDirectPost(t *testing.T) {
 		ctx := newTestClient(t)
 		ctx.iamClient.EXPECT().PostAuthorizationResponse(gomock.Any(), gomock.Any(), gomock.Any(), "response", "").Return("", assert.AnError)
 
-		_, err := ctx.client.sendAndHandleDirectPost(context.Background(), vc.VerifiablePresentation{}, pe.PresentationSubmission{}, "response", "")
+		_, err := ctx.client.sendAndHandleDirectPost(context.Background(), walletDID, vc.VerifiablePresentation{}, pe.PresentationSubmission{}, "response", "")
 
 		assert.Equal(t, assert.AnError, err)
 	})
