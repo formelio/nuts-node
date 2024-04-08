@@ -8,6 +8,7 @@ import (
 )
 
 var _ KeyStore = &MemoryKeyStore{}
+var errNotSupportedForInMemoryKeyStore = errors.New("not supported on in-memory key store")
 
 // MemoryKeyStore is a KeyStore implementation that performs cryptographic operations on an in-memory JWK.
 // This should only be used for low-assurance use cases, e.g. session-bound user keys.
@@ -53,25 +54,25 @@ func (m MemoryKeyStore) Exists(_ context.Context, kid string) bool {
 }
 
 func (m MemoryKeyStore) SignJWS(_ context.Context, _ []byte, _ map[string]interface{}, _ interface{}, _ bool) (string, error) {
-	return "", errors.New("not supported on in-memory key store")
+	return "", errNotSupportedForInMemoryKeyStore
 }
 
 func (m MemoryKeyStore) Decrypt(_ context.Context, _ string, _ []byte) ([]byte, error) {
-	return nil, errors.New("not supported on in-memory key store")
+	return nil, errNotSupportedForInMemoryKeyStore
 }
 
 func (m MemoryKeyStore) New(_ context.Context, _ KIDNamingFunc) (Key, error) {
-	return nil, errors.New("not supported on in-memory key store")
+	return nil, errNotSupportedForInMemoryKeyStore
 }
 
 func (m MemoryKeyStore) EncryptJWE(_ context.Context, _ []byte, _ map[string]interface{}, _ interface{}) (string, error) {
-	return "", errors.New("not supported on in-memory key store")
+	return "", errNotSupportedForInMemoryKeyStore
 }
 
 func (m MemoryKeyStore) DecryptJWE(_ context.Context, _ string) (body []byte, headers map[string]interface{}, err error) {
-	return nil, nil, errors.New("not supported on in-memory key store")
+	return nil, nil, errNotSupportedForInMemoryKeyStore
 }
 
 func (m MemoryKeyStore) Delete(_ context.Context, _ string) error {
-	return errors.New("not supported on in-memory key store")
+	return errNotSupportedForInMemoryKeyStore
 }
