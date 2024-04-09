@@ -29,6 +29,7 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/nuts-foundation/go-did/did"
@@ -141,6 +142,10 @@ func (r Wrapper) handleAuthorizeRequestFromHolder(ctx context.Context, verifier 
 			Submissions:                     make(map[string]pe.PresentationSubmission, len(presentationDefinitions)),
 			Credentials:                     make(map[string]vc.VerifiableCredential),
 		},
+		PKCEParams: PKCEParams{ // store params, when generating authorization code we take the params from the nonceStore and encrypt them in the authorization code
+			Challenge:       params.get(oauth.CodeChallengeParam),
+			ChallengeMethod: params.get(oauth.CodeChallengeMethodParam),
+		},
 	}
 	// create a client state for the verifier
 	state := crypto.GenerateNonce()
@@ -214,18 +219,7 @@ func (r Wrapper) nextOpenID4VPFlow(ctx context.Context, state string, session OA
 		values[oauth.StateParam] = state
 	}
 	authServerURL, err := r.auth.IAMClient().CreateAuthorizationRequest(ctx, *session.OwnDID, session.OpenID4VPVerifier.WalletDID, modifier)
-	// TODO WIP: add PEX IDs completed to the storage, use server state for this
-	openid4vpRequest := OAuthSession{
-		ClientID:    walletID,
-		Scope:       params.get(oauth.ScopeParam),
-		OwnDID:      &verifier,
-		ClientState: params.get(oauth.StateParam),
-		RedirectURI: redirectURL.String(),
-		PKCEParams: PKCEParams{ // store params, when generating authorization code we take the params from the nonceStore and encrypt them in the authorization code
-			Challenge:       params.get(oauth.CodeChallengeParam),
-			ChallengeMethod: params.get(oauth.CodeChallengeMethodParam),
-		},
-	}
+
 	// use nonce and state to store authorization request in session store
 	if err = r.oauthNonceStore().Put(nonce, state); err != nil {
 		return nil, oauth.OAuth2Error{Code: oauth.ServerError, InternalError: err, Description: "failed to store server state"}
@@ -254,7 +248,7 @@ func (r Wrapper) nextOpenID4VPFlow(ctx context.Context, state string, session OA
 // there are way more error conditions that listed at: https://openid.net/specs/openid-4-verifiable-presentations-1_0.html#name-error-response
 // missing or invalid parameters are all mapped to invalid_request
 // any operation that fails is mapped to server_error, this includes unreachable or broken backends.
-func (r Wrapper) handleAuthorizeRequestFromVerifier(ctx context.Context, tenantDID did.DID, requestObject oauthParameters, httpParameters oauthParameters) (HandleAuthorizeRequestResponseObject, error) {
+func (r Wrapper) handleAuthorizeRequestFromVerifier(ctx context.Context, tenantDID did.DID, requestObject oauthParameters, walletOwnerType WalletOwnerType) (HandleAuthorizeRequestResponseObject, error) {
 	responseMode := requestObject.get(responseModeParam)
 	if responseMode != responseModeDirectPost {
 		return nil, oauth.OAuth2Error{Code: oauth.InvalidRequest, Description: "invalid response_mode parameter"}
@@ -315,34 +309,25 @@ func (r Wrapper) handleAuthorizeRequestFromVerifier(ctx context.Context, tenantD
 		Nonce:    nonce,
 	}
 
-	var vp *vc.VerifiablePresentation
-	var submission *pe.PresentationSubmission
-	var walletDID did.DID
-	log.Logger().Infof("User wallet: %s", userSession.Wallet.Credentials[0].Raw())
-	if httpParameters.get("wallet_owner_type") == string(pe.WalletOwnerUser) {
+	targetWallet := r.vcr.Wallet()
+	targetDID := tenantDID
+	if walletOwnerType == pe.WalletOwnerUser {
+		log.Logger().Infof("User wallet requested")
 		// User wallet
 		var privateKey jwk.Key
 		privateKey, err = userSession.Wallet.Key()
-		walletDID = userSession.Wallet.DID
-		if err == nil {
-			vp, submission, err = holder.CredentialPresenter{
-				KeyResolver:   resolver.DIDKeyResolver{Resolver: didjwk.NewResolver()},
-				KeyStore:      crypto.MemoryKeyStore{Key: privateKey},
-				JSONLDManager: r.JSONLDManager,
-			}.BuildSubmission(ctx, userSession.Wallet.Credentials, userSession.Wallet.DID, *presentationDefinition, metadata.VPFormats, buildParams)
-		}
-	} else {
-		// Organization wallet
-		var credentials []vc.VerifiableCredential
-		walletDID = tenantDID
-		credentials, err = r.vcr.Wallet().List(ctx, tenantDID)
-		if err == nil {
-			vp, submission, err = r.vcr.Presenter().BuildSubmission(ctx, credentials, tenantDID, *presentationDefinition, metadata.VPFormats, buildParams)
-		}
+		targetDID = userSession.Wallet.DID
+		targetWallet = holder.NewMemoryWallet(
+			r.JSONLDManager.DocumentLoader(),
+			resolver.DIDKeyResolver{Resolver: didjwk.NewResolver()},
+			crypto.MemoryKeyStore{Key: privateKey},
+			map[did.DID][]vc.VerifiableCredential{userSession.Wallet.DID: userSession.Wallet.Credentials},
+		)
 	}
+	vp, submission, err := targetWallet.BuildSubmission(ctx, targetDID, *presentationDefinition, metadata.VPFormats, buildParams)
 	if err != nil {
 		if errors.Is(err, holder.ErrNoCredentials) {
-			return r.sendAndHandleDirectPostError(ctx, oauth.OAuth2Error{Code: oauth.InvalidRequest, Description: fmt.Sprintf("no credentials available (PD ID: %s, wallet: %s)", presentationDefinition.Id, walletDID)}, responseURI, state)
+			return r.sendAndHandleDirectPostError(ctx, oauth.OAuth2Error{Code: oauth.InvalidRequest, Description: fmt.Sprintf("no credentials available (PD ID: %s, wallet: %s)", presentationDefinition.Id, targetDID)}, responseURI, state)
 		}
 		return r.sendAndHandleDirectPostError(ctx, oauth.OAuth2Error{Code: oauth.ServerError, Description: err.Error()}, responseURI, state)
 	}
@@ -358,7 +343,7 @@ func (r Wrapper) sendAndHandleDirectPost(ctx context.Context, walletDID did.DID,
 	if err != nil {
 		return nil, err
 	}
-	// Redirect URI starting with openid4vp:// is a signal from the OpenID4VP verifier
+	// Redirect URI starting with openid4vp: is a signal from the OpenID4VP verifier
 	// that it requires another Verifiable Presentation, but this time from a user wallet.
 	if strings.HasPrefix(redirectURI, "openid4vp:") {
 		// Create a new redirect URL to the local OpenID4VP wallet's authorization endpoint that includes request parameters,
@@ -697,18 +682,17 @@ func (r Wrapper) handleAccessTokenRequest(ctx context.Context, request HandleTok
 		return nil, oauthError(oauth.InvalidGrant, "invalid code_verifier")
 	}
 	presentations := oauthSession.OpenID4VPVerifier.Presentations
-	submissions := oauthSession.OpenID4VPVerifier.Submissions
-	mapping, err := r.policyBackend.PresentationDefinitions(ctx, *oauthSession.OwnDID, oauthSession.Scope)
-	if err != nil {
-		return nil, oauthError(oauth.ServerError, fmt.Sprintf("failed to fetch presentation definition: %s", err.Error()))
-	}
 	credentialMap := oauthSession.OpenID4VPVerifier.Credentials
 	subject, _ := did.ParseDID(oauthSession.ClientID)
-
-	// TODO: We need to alter the Token Introspection endpoint to cater for multiple OpenID4VP flows
-	submission := submissions[string(pe.WalletOwnerOrganization)]
-	presentationDefinition := mapping[pe.WalletOwnerOrganization]
-	response, err := r.createAccessToken(*oauthSession.OwnDID, time.Now(), presentations, &submission, presentationDefinition, oauthSession.Scope, *subject, credentialMap)
+	var submissions []PresentationSubmission
+	for _, submission := range oauthSession.OpenID4VPVerifier.Submissions {
+		submissions = append(submissions, submission)
+	}
+	presentationDefinitions := make([]PresentationDefinition, 0)
+	for _, curr := range oauthSession.OpenID4VPVerifier.RequiredPresentationDefinitions {
+		presentationDefinitions = append(presentationDefinitions, curr)
+	}
+	response, err := r.createAccessToken(*oauthSession.OwnDID, time.Now(), presentations, submissions, presentationDefinitions, oauthSession.Scope, *subject, credentialMap)
 	if err != nil {
 		return nil, oauthError(oauth.ServerError, fmt.Sprintf("failed to create access token: %s", err.Error()))
 	}

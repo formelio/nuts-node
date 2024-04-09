@@ -62,7 +62,7 @@ type OpenID4VPVerifier struct {
 // next returns the Presentation Definition that should be fulfilled next.
 // It also returns the wallet owner type that should fulfill the Presentation Definition.
 // If all Presentation Definitions have been fulfilled, it returns nil.
-func (v OpenID4VPVerifier) next() (*pe.WalletOwnerType, *pe.PresentationDefinition) {
+func (v *OpenID4VPVerifier) next() (*pe.WalletOwnerType, *pe.PresentationDefinition) {
 	// Note: this is now fairly hardcoded, since there are only 2 PDs possible, one targeting the organization wallet and
 	//       1 targeting the user wallet. In the future, this could be more dynamic.
 	if def, required := v.RequiredPresentationDefinitions[pe.WalletOwnerOrganization]; required && !v.isFulfilled(def.Id) {
@@ -79,7 +79,7 @@ func (v OpenID4VPVerifier) next() (*pe.WalletOwnerType, *pe.PresentationDefiniti
 // fulfill tries to fulfill the given Presentation Definition with the given submission and presentations.
 // It returns an error if the Presentation Definition (identified by ID) isn't required, or already is fulfilled.
 // It does not check whether the submission actually matches the Presentation Definition, that's the caller's responsibility.
-func (v OpenID4VPVerifier) fulfill(definitionID string, submission pe.PresentationSubmission, presentations []vc.VerifiablePresentation, credentials map[string]vc.VerifiableCredential) error {
+func (v *OpenID4VPVerifier) fulfill(definitionID string, submission pe.PresentationSubmission, presentations []vc.VerifiablePresentation, credentials map[string]vc.VerifiableCredential) error {
 	// Make sure this definition is actually required
 	required := false
 	for _, curr := range v.RequiredPresentationDefinitions {
@@ -105,7 +105,7 @@ func (v OpenID4VPVerifier) fulfill(definitionID string, submission pe.Presentati
 	return nil
 }
 
-func (v OpenID4VPVerifier) isFulfilled(presentationDefinitionID string) bool {
+func (v *OpenID4VPVerifier) isFulfilled(presentationDefinitionID string) bool {
 	_, fulfilled := v.Submissions[presentationDefinitionID]
 	return fulfilled
 }

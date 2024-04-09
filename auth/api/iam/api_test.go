@@ -729,8 +729,8 @@ func TestWrapper_IntrospectAccessToken(t *testing.T) {
 			Scope:                          "test",
 			InputDescriptorConstraintIdMap: map[string]any{"key": "value"},
 			VPToken:                        []VerifiablePresentation{presentation},
-			PresentationSubmission:         &pe.PresentationSubmission{},
-			PresentationDefinition:         &pe.PresentationDefinition{},
+			PresentationSubmissions:        &pe.PresentationSubmission{},
+			PresentationDefinitions:        &pe.PresentationDefinition{},
 		}
 
 		require.NoError(t, ctx.client.accessTokenServerStore().Put(token.Token, token))

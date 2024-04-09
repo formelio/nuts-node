@@ -103,15 +103,12 @@ func Test_UserAccessToken_EmployeeCredential(t *testing.T) {
 	require.NotEmpty(t, tokenInfo.Exp)
 	require.NotEmpty(t, tokenInfo.Iat)
 	// Check the mapped input descriptor fields: for organization credential and employee credential
-	require.NotEmpty(t, tokenInfo.InputDescriptorConstraintIdMap)
-	credentialValues := *tokenInfo.InputDescriptorConstraintIdMap
-	require.Equal(t, "Requesting Organization", credentialValues["organization_name"].(string))
-	require.Equal(t, "Testland", credentialValues["organization_city"].(string))
-	// TODO: The 3 values below require missing user-wallet matching
-	// TODO: The EmployeeCredential needs to be added to the policy JSON
-	require.Equal(t, "jdoe@example.com", credentialValues["employee_id"].(string))
-	require.Equal(t, "John Doe", credentialValues["employee_name"].(string))
-	require.Equal(t, "Accountant", credentialValues["employee_role"].(string))
+	require.NotEmpty(t, tokenInfo.AdditionalProperties)
+	require.Equal(t, "Requesting Organization", tokenInfo.AdditionalProperties["organization_name"].(string))
+	require.Equal(t, "Testland", tokenInfo.AdditionalProperties["organization_city"].(string))
+	require.Equal(t, "jdoe@example.com", tokenInfo.AdditionalProperties["employee_identifier"].(string))
+	require.Equal(t, "John Doe", tokenInfo.AdditionalProperties["employee_name"].(string))
+	require.Equal(t, "Accountant", tokenInfo.AdditionalProperties["employee_role"].(string))
 
 	if os.Getenv("KEEP_BROWSER_OPEN") == "true" {
 		timeout := time.Minute
