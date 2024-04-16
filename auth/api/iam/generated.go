@@ -507,6 +507,9 @@ type ClientInterface interface {
 	// OAuthAuthorizationServerMetadata request
 	OAuthAuthorizationServerMetadata(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// CallbackOid4vciCredentialIssuance request
+	CallbackOid4vciCredentialIssuance(ctx context.Context, params *CallbackOid4vciCredentialIssuanceParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetTenantWebDID request
 	GetTenantWebDID(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -517,6 +520,11 @@ type ClientInterface interface {
 
 	// RetrieveAccessToken request
 	RetrieveAccessToken(ctx context.Context, sessionID string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RequestOid4vciCredentialIssuanceWithBody request with any body
+	RequestOid4vciCredentialIssuanceWithBody(ctx context.Context, did string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	RequestOid4vciCredentialIssuance(ctx context.Context, did string, body RequestOid4vciCredentialIssuanceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// RequestServiceAccessTokenWithBody request with any body
 	RequestServiceAccessTokenWithBody(ctx context.Context, did string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -590,6 +598,18 @@ func (c *Client) OAuthAuthorizationServerMetadata(ctx context.Context, id string
 	return c.Client.Do(req)
 }
 
+func (c *Client) CallbackOid4vciCredentialIssuance(ctx context.Context, params *CallbackOid4vciCredentialIssuanceParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCallbackOid4vciCredentialIssuanceRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 func (c *Client) GetTenantWebDID(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetTenantWebDIDRequest(c.Server, id)
 	if err != nil {
@@ -628,6 +648,30 @@ func (c *Client) IntrospectAccessTokenWithFormdataBody(ctx context.Context, body
 
 func (c *Client) RetrieveAccessToken(ctx context.Context, sessionID string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewRetrieveAccessTokenRequest(c.Server, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) RequestOid4vciCredentialIssuanceWithBody(ctx context.Context, did string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRequestOid4vciCredentialIssuanceRequestWithBody(c.Server, did, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) RequestOid4vciCredentialIssuance(ctx context.Context, did string, body RequestOid4vciCredentialIssuanceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRequestOid4vciCredentialIssuanceRequest(c.Server, did, body)
 	if err != nil {
 		return nil, err
 	}
@@ -882,6 +926,95 @@ func NewOAuthAuthorizationServerMetadataRequest(server string, id string) (*http
 	return req, nil
 }
 
+// NewCallbackOid4vciCredentialIssuanceRequest generates requests for CallbackOid4vciCredentialIssuance
+func NewCallbackOid4vciCredentialIssuanceRequest(server string, params *CallbackOid4vciCredentialIssuanceParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/iam/oid4vci/callback")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		queryValues := queryURL.Query()
+
+		if queryFrag, err := runtime.StyleParamWithLocation("form", true, "code", runtime.ParamLocationQuery, params.Code); err != nil {
+			return nil, err
+		} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+			return nil, err
+		} else {
+			for k, v := range parsed {
+				for _, v2 := range v {
+					queryValues.Add(k, v2)
+				}
+			}
+		}
+
+		if queryFrag, err := runtime.StyleParamWithLocation("form", true, "state", runtime.ParamLocationQuery, params.State); err != nil {
+			return nil, err
+		} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+			return nil, err
+		} else {
+			for k, v := range parsed {
+				for _, v2 := range v {
+					queryValues.Add(k, v2)
+				}
+			}
+		}
+
+		if params.Error != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "error", runtime.ParamLocationQuery, *params.Error); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		if params.ErrorDescription != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "error_description", runtime.ParamLocationQuery, *params.ErrorDescription); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		queryURL.RawQuery = queryValues.Encode()
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewGetTenantWebDIDRequest generates requests for GetTenantWebDID
 func NewGetTenantWebDIDRequest(server string, id string) (*http.Request, error) {
 	var err error
@@ -986,6 +1119,50 @@ func NewRetrieveAccessTokenRequest(server string, sessionID string) (*http.Reque
 	if err != nil {
 		return nil, err
 	}
+
+	return req, nil
+}
+
+// NewRequestOid4vciCredentialIssuanceRequest calls the generic RequestOid4vciCredentialIssuance builder with application/json body
+func NewRequestOid4vciCredentialIssuanceRequest(server string, did string, body RequestOid4vciCredentialIssuanceJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewRequestOid4vciCredentialIssuanceRequestWithBody(server, did, "application/json", bodyReader)
+}
+
+// NewRequestOid4vciCredentialIssuanceRequestWithBody generates requests for RequestOid4vciCredentialIssuance with any type of body
+func NewRequestOid4vciCredentialIssuanceRequestWithBody(server string, did string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0 = did
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/internal/auth/v2/%s/request-credential", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
 
 	return req, nil
 }
@@ -1506,6 +1683,9 @@ type ClientWithResponsesInterface interface {
 	// OAuthAuthorizationServerMetadataWithResponse request
 	OAuthAuthorizationServerMetadataWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*OAuthAuthorizationServerMetadataResponse, error)
 
+	// CallbackOid4vciCredentialIssuanceWithResponse request
+	CallbackOid4vciCredentialIssuanceWithResponse(ctx context.Context, params *CallbackOid4vciCredentialIssuanceParams, reqEditors ...RequestEditorFn) (*CallbackOid4vciCredentialIssuanceResponse, error)
+
 	// GetTenantWebDIDWithResponse request
 	GetTenantWebDIDWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*GetTenantWebDIDResponse, error)
 
@@ -1516,6 +1696,11 @@ type ClientWithResponsesInterface interface {
 
 	// RetrieveAccessTokenWithResponse request
 	RetrieveAccessTokenWithResponse(ctx context.Context, sessionID string, reqEditors ...RequestEditorFn) (*RetrieveAccessTokenResponse, error)
+
+	// RequestOid4vciCredentialIssuanceWithBodyWithResponse request with any body
+	RequestOid4vciCredentialIssuanceWithBodyWithResponse(ctx context.Context, did string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RequestOid4vciCredentialIssuanceResponse, error)
+
+	RequestOid4vciCredentialIssuanceWithResponse(ctx context.Context, did string, body RequestOid4vciCredentialIssuanceJSONRequestBody, reqEditors ...RequestEditorFn) (*RequestOid4vciCredentialIssuanceResponse, error)
 
 	// RequestServiceAccessTokenWithBodyWithResponse request with any body
 	RequestServiceAccessTokenWithBodyWithResponse(ctx context.Context, did string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RequestServiceAccessTokenResponse, error)
@@ -1639,6 +1824,37 @@ func (r OAuthAuthorizationServerMetadataResponse) StatusCode() int {
 	return 0
 }
 
+type CallbackOid4vciCredentialIssuanceResponse struct {
+	Body                          []byte
+	HTTPResponse                  *http.Response
+	ApplicationproblemJSONDefault *struct {
+		// Detail A human-readable explanation specific to this occurrence of the problem.
+		Detail string `json:"detail"`
+
+		// Status HTTP statuscode
+		Status float32 `json:"status"`
+
+		// Title A short, human-readable summary of the problem type.
+		Title string `json:"title"`
+	}
+}
+
+// Status returns HTTPResponse.Status
+func (r CallbackOid4vciCredentialIssuanceResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CallbackOid4vciCredentialIssuanceResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 type GetTenantWebDIDResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -1709,6 +1925,38 @@ func (r RetrieveAccessTokenResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r RetrieveAccessTokenResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type RequestOid4vciCredentialIssuanceResponse struct {
+	Body                          []byte
+	HTTPResponse                  *http.Response
+	JSON200                       *RedirectResponse
+	ApplicationproblemJSONDefault *struct {
+		// Detail A human-readable explanation specific to this occurrence of the problem.
+		Detail string `json:"detail"`
+
+		// Status HTTP statuscode
+		Status float32 `json:"status"`
+
+		// Title A short, human-readable summary of the problem type.
+		Title string `json:"title"`
+	}
+}
+
+// Status returns HTTPResponse.Status
+func (r RequestOid4vciCredentialIssuanceResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RequestOid4vciCredentialIssuanceResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -1918,19 +2166,10 @@ func (r HandleAuthorizeResponseResponse) StatusCode() int {
 }
 
 type HandleTokenRequestResponse struct {
-	Body                          []byte
-	HTTPResponse                  *http.Response
-	JSON200                       *TokenResponse
-	ApplicationproblemJSONDefault *struct {
-		// Detail A human-readable explanation specific to this occurrence of the problem.
-		Detail string `json:"detail"`
-
-		// Status HTTP statuscode
-		Status float32 `json:"status"`
-
-		// Title A short, human-readable summary of the problem type.
-		Title string `json:"title"`
-	}
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *TokenResponse
+	JSONDefault  *ErrorResponse
 }
 
 // Status returns HTTPResponse.Status
@@ -2008,6 +2247,15 @@ func (c *ClientWithResponses) OAuthAuthorizationServerMetadataWithResponse(ctx c
 	return ParseOAuthAuthorizationServerMetadataResponse(rsp)
 }
 
+// CallbackOid4vciCredentialIssuanceWithResponse request returning *CallbackOid4vciCredentialIssuanceResponse
+func (c *ClientWithResponses) CallbackOid4vciCredentialIssuanceWithResponse(ctx context.Context, params *CallbackOid4vciCredentialIssuanceParams, reqEditors ...RequestEditorFn) (*CallbackOid4vciCredentialIssuanceResponse, error) {
+	rsp, err := c.CallbackOid4vciCredentialIssuance(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCallbackOid4vciCredentialIssuanceResponse(rsp)
+}
+
 // GetTenantWebDIDWithResponse request returning *GetTenantWebDIDResponse
 func (c *ClientWithResponses) GetTenantWebDIDWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*GetTenantWebDIDResponse, error) {
 	rsp, err := c.GetTenantWebDID(ctx, id, reqEditors...)
@@ -2041,6 +2289,23 @@ func (c *ClientWithResponses) RetrieveAccessTokenWithResponse(ctx context.Contex
 		return nil, err
 	}
 	return ParseRetrieveAccessTokenResponse(rsp)
+}
+
+// RequestOid4vciCredentialIssuanceWithBodyWithResponse request with arbitrary body returning *RequestOid4vciCredentialIssuanceResponse
+func (c *ClientWithResponses) RequestOid4vciCredentialIssuanceWithBodyWithResponse(ctx context.Context, did string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RequestOid4vciCredentialIssuanceResponse, error) {
+	rsp, err := c.RequestOid4vciCredentialIssuanceWithBody(ctx, did, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRequestOid4vciCredentialIssuanceResponse(rsp)
+}
+
+func (c *ClientWithResponses) RequestOid4vciCredentialIssuanceWithResponse(ctx context.Context, did string, body RequestOid4vciCredentialIssuanceJSONRequestBody, reqEditors ...RequestEditorFn) (*RequestOid4vciCredentialIssuanceResponse, error) {
+	rsp, err := c.RequestOid4vciCredentialIssuance(ctx, did, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRequestOid4vciCredentialIssuanceResponse(rsp)
 }
 
 // RequestServiceAccessTokenWithBodyWithResponse request with arbitrary body returning *RequestServiceAccessTokenResponse
@@ -2266,6 +2531,41 @@ func ParseOAuthAuthorizationServerMetadataResponse(rsp *http.Response) (*OAuthAu
 	return response, nil
 }
 
+// ParseCallbackOid4vciCredentialIssuanceResponse parses an HTTP response from a CallbackOid4vciCredentialIssuanceWithResponse call
+func ParseCallbackOid4vciCredentialIssuanceResponse(rsp *http.Response) (*CallbackOid4vciCredentialIssuanceResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CallbackOid4vciCredentialIssuanceResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest struct {
+			// Detail A human-readable explanation specific to this occurrence of the problem.
+			Detail string `json:"detail"`
+
+			// Status HTTP statuscode
+			Status float32 `json:"status"`
+
+			// Title A short, human-readable summary of the problem type.
+			Title string `json:"title"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseGetTenantWebDIDResponse parses an HTTP response from a GetTenantWebDIDWithResponse call
 func ParseGetTenantWebDIDResponse(rsp *http.Response) (*GetTenantWebDIDResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -2334,6 +2634,48 @@ func ParseRetrieveAccessTokenResponse(rsp *http.Response) (*RetrieveAccessTokenR
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest TokenResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest struct {
+			// Detail A human-readable explanation specific to this occurrence of the problem.
+			Detail string `json:"detail"`
+
+			// Status HTTP statuscode
+			Status float32 `json:"status"`
+
+			// Title A short, human-readable summary of the problem type.
+			Title string `json:"title"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseRequestOid4vciCredentialIssuanceResponse parses an HTTP response from a RequestOid4vciCredentialIssuanceWithResponse call
+func ParseRequestOid4vciCredentialIssuanceResponse(rsp *http.Response) (*RequestOid4vciCredentialIssuanceResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RequestOid4vciCredentialIssuanceResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest RedirectResponse
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -2627,20 +2969,11 @@ func ParseHandleTokenRequestResponse(rsp *http.Response) (*HandleTokenRequestRes
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
-		var dest struct {
-			// Detail A human-readable explanation specific to this occurrence of the problem.
-			Detail string `json:"detail"`
-
-			// Status HTTP statuscode
-			Status float32 `json:"status"`
-
-			// Title A short, human-readable summary of the problem type.
-			Title string `json:"title"`
-		}
+		var dest ErrorResponse
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
-		response.ApplicationproblemJSONDefault = &dest
+		response.JSONDefault = &dest
 
 	}
 
