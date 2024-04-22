@@ -21,6 +21,7 @@ package auth
 import (
 	"github.com/nuts-foundation/nuts-node/auth/services"
 	"github.com/nuts-foundation/nuts-node/auth/services/dummy"
+	"github.com/nuts-foundation/nuts-node/auth/services/patient"
 	"github.com/nuts-foundation/nuts-node/auth/services/selfsigned"
 	"github.com/nuts-foundation/nuts-node/auth/services/uzi"
 )
@@ -54,6 +55,7 @@ func DefaultConfig() Config {
 			uzi.ContractFormat,
 			dummy.ContractFormat,
 			selfsigned.ContractFormat,
+			patient.ContractFormat,
 		},
 		AccessTokenLifeSpan: 60, // seconds, as specced in RFC003
 	}

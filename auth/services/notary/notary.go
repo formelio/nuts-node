@@ -23,10 +23,11 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/nuts-foundation/nuts-node/core"
 	"reflect"
 	"strings"
 	"time"
+
+	"github.com/nuts-foundation/nuts-node/core"
 
 	ssi "github.com/nuts-foundation/go-did"
 	"github.com/nuts-foundation/go-did/did"
@@ -35,6 +36,7 @@ import (
 	"github.com/nuts-foundation/nuts-node/auth/services"
 	"github.com/nuts-foundation/nuts-node/auth/services/dummy"
 	"github.com/nuts-foundation/nuts-node/auth/services/irma"
+	"github.com/nuts-foundation/nuts-node/auth/services/patient"
 	"github.com/nuts-foundation/nuts-node/auth/services/selfsigned"
 	"github.com/nuts-foundation/nuts-node/auth/services/uzi"
 	"github.com/nuts-foundation/nuts-node/auth/services/x509"
@@ -209,6 +211,14 @@ func (n *notary) Configure() error {
 
 		n.verifiers[selfsigned.VerifiablePresentationType] = ev
 		n.signers[selfsigned.ContractFormat] = es
+	}
+
+	if n.config.hasContractValidator(patient.ContractFormat) {
+		patientSigner := patient.NewSigner(n.vcr, n.config.PublicURL)
+		patientValidator := patient.NewValidator(n.vcr, contract.StandardContractTemplates)
+
+		n.verifiers[patient.VerifiablePresentationType] = patientValidator
+		n.signers[patient.ContractFormat] = patientSigner
 	}
 
 	return nil
