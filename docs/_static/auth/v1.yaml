@@ -309,7 +309,7 @@ components:
       properties:
         means:
           type: string
-          enum: [ irma, employeeid, dummy ]
+          enum: [ irma, employeeid, dummy, patientid ]
           example: irma
         params:
           type: object
@@ -332,7 +332,7 @@ components:
         means:
           description: The means this session uses to sign.
           type: string
-          enum: [ irma, employeeid, dummy ]
+          enum: [ irma, employeeid, dummy, patientid ]
           example: irma
     SignSessionStatusResponse:
       required:

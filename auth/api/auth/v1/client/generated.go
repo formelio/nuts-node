@@ -32,6 +32,7 @@ const (
 	SignSessionRequestMeansDummy      SignSessionRequestMeans = "dummy"
 	SignSessionRequestMeansEmployeeid SignSessionRequestMeans = "employeeid"
 	SignSessionRequestMeansIrma       SignSessionRequestMeans = "irma"
+	SignSessionRequestMeansPatientid  SignSessionRequestMeans = "patientid"
 )
 
 // Defines values for SignSessionResponseMeans.
@@ -39,6 +40,7 @@ const (
 	SignSessionResponseMeansDummy      SignSessionResponseMeans = "dummy"
 	SignSessionResponseMeansEmployeeid SignSessionResponseMeans = "employeeid"
 	SignSessionResponseMeansIrma       SignSessionResponseMeans = "irma"
+	SignSessionResponseMeansPatientid  SignSessionResponseMeans = "patientid"
 )
 
 // Defines values for TokenIntrospectionResponseAssuranceLevel.
