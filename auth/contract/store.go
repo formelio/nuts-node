@@ -56,9 +56,9 @@ var StandardContractTemplates = TemplateStore{
 			Locale:             "nl_NL",
 			SignerAttributes:   StandardSignerAttributes,
 			// TODO: Fix the template and the regexp
-			Template:           `NL:PatientLogin:v1 Ondergetekende geeft toestemming aan {{{` + ActingPartyAttr + `}}} om namens {{{` + LegalEntityAttr + `}}} en ondergetekende het Nuts netwerk te bevragen. Deze toestemming is geldig van {{` + ValidFromAttr + `}} tot {{` + ValidToAttr + `}}.`,
-			TemplateAttributes: []string{ActingPartyAttr, LegalEntityAttr, ValidFromAttr, ValidToAttr},
-			Regexp:             `NL:PatientLogin:v1 Ondergetekende geeft toestemming aan (.+) om namens (.+) en ondergetekende het Nuts netwerk te bevragen. Deze toestemming is geldig van (.+) tot (.+).`,
+			Template:           `NL:PatientLogin:v1 Hierbij verklaar ik te handelen in naam van {{{` + LegalEntityAttr + `}}} te {{{` + LegalEntityCityAttr + `}}}. Deze verklaring is geldig van {{` + ValidFromAttr + `}} tot {{` + ValidToAttr + `}}.`,
+			TemplateAttributes: []string{LegalEntityAttr, LegalEntityCityAttr, ValidFromAttr, ValidToAttr},
+			Regexp:             `NL:PatientLogin:v1 Hierbij verklaar ik te handelen in naam van (.+) te (.+). Deze verklaring is geldig van (.+) tot (.+).`,
 		},
 	}},
 	"EN": {"PractitionerLogin": {
