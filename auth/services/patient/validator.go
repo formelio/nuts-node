@@ -94,6 +94,7 @@ func (v validator) VerifyVP(vp vc.VerifiablePresentation, validAt *time.Time) (c
 		services.UsernameClaim:        credentialSubject.Member.Identifier,
 		// TODO: adjust?
 		services.AssuranceLevelClaim: "low",
+		services.UserRoleClaim:       "patient",
 	}
 
 	return patientVerificationResult{
