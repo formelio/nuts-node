@@ -94,5 +94,7 @@ GIT_VERSION ?= "$(shell git name-rev --tags --name-only $(shell git rev-parse HE
 build:
 	go build -ldflags="-w -s -X 'github.com/nuts-foundation/nuts-node/core.GitCommit=${GIT_COMMIT}' -X 'github.com/nuts-foundation/nuts-node/core.GitBranch=${GIT_BRANCH}' -X 'github.com/nuts-foundation/nuts-node/core.GitVersion=${GIT_VERSION}'" -o ${OUTPUT}
 
+IMAGE_ENV ?= dev
 docker:
-	docker build --build-arg GIT_COMMIT=${GIT_COMMIT} --build-arg GIT_BRANCH=${GIT_BRANCH} --build-arg GIT_VERSION=${GIT_VERSION} -t nutsfoundation/nuts-node:latest .
+	docker build --build-arg GIT_COMMIT=${GIT_COMMIT} --build-arg GIT_BRANCH=${GIT_BRANCH} --build-arg GIT_VERSION=${GIT_VERSION} -t europe-west4-docker.pkg.dev/ivido-development/ivido-${IMAGE_ENV}/nuts-node:v5.3.2-formelio1 .
+	docker push europe-west4-docker.pkg.dev/ivido-development/ivido-${IMAGE_ENV}/nuts-node:v5.3.2-formelio1
