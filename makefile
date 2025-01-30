@@ -96,5 +96,5 @@ build:
 
 IMAGE_ENV ?= dev
 docker:
-	docker build --build-arg GIT_COMMIT=${GIT_COMMIT} --build-arg GIT_BRANCH=${GIT_BRANCH} --build-arg GIT_VERSION=${GIT_VERSION} -t europe-west4-docker.pkg.dev/ivido-development/ivido-${IMAGE_ENV}/nuts-node:v5.3.2-formelio1 .
-	docker push europe-west4-docker.pkg.dev/ivido-development/ivido-${IMAGE_ENV}/nuts-node:v5.3.2-formelio1
+	docker build --build-arg GIT_COMMIT=${GIT_COMMIT} --build-arg GIT_BRANCH=${GIT_BRANCH} --build-arg GIT_VERSION=${GIT_VERSION} -t europe-west4-docker.pkg.dev/ivido-development/ivido-${IMAGE_ENV}/nuts-node:v5.3.2-formelio2 .
+	docker push europe-west4-docker.pkg.dev/ivido-development/ivido-${IMAGE_ENV}/nuts-node:v5.3.2-formelio2
