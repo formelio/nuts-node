@@ -1,5 +1,5 @@
 # golang alpine
-FROM golang:1.20.4-alpine as builder
+FROM golang:1.24-alpine as builder
 
 ARG TARGETARCH
 ARG TARGETOS
@@ -22,14 +22,15 @@ COPY go.sum .
 RUN go mod download && go mod verify
 
 COPY . .
-RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -ldflags="-w -s -X 'github.com/nuts-foundation/nuts-node/core.GitCommit=${GIT_COMMIT}' -X 'github.com/nuts-foundation/nuts-node/core.GitBranch=${GIT_BRANCH}' -X 'github.com/nuts-foundation/nuts-node/core.GitVersion=${GIT_VERSION}'" -o /opt/nuts/nuts
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -ldflags="-X 'github.com/nuts-foundation/nuts-node/core.GitCommit=${GIT_COMMIT}' -X 'github.com/nuts-foundation/nuts-node/core.GitBranch=${GIT_BRANCH}' -X 'github.com/nuts-foundation/nuts-node/core.GitVersion=${GIT_VERSION}'" -o /opt/nuts/nuts
 
 # alpine
-FROM alpine:3.18.0
+FROM alpine:3
 RUN apk update \
   && apk add --no-cache \
              tzdata \
              curl \
+             ca-certificates \
   && update-ca-certificates
 COPY --from=builder /opt/nuts/nuts /usr/bin/nuts
 
