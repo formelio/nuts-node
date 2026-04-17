@@ -7,12 +7,12 @@ name: 'govulncheck'
 on:
   push:
     branches:
-      - 'master'
+      - main
       - 'V*'
   pull_request:
     # The branches below must be a subset of the branches above
     branches:
-      - 'master'
+      - main
       - 'V*'
   schedule:
     - cron: '21 10 * * 2'
