@@ -36,6 +36,8 @@ import (
 // palHeaderDIDSeparator holds the character(s) that separate DID entries in the PAL header, before being encrypted.
 const palHeaderDIDSeparator = "\n"
 
+const palEntryCount = 2
+
 // PAL holds the list of participants of a transaction.
 type PAL []did.DID
 
@@ -121,8 +123,13 @@ outer:
 		return nil, nil
 	}
 
+	parts := strings.Split(string(decrypted), palHeaderDIDSeparator)
+	if len(parts) != palEntryCount {
+		return nil, fmt.Errorf("decrypted pal must contain exactly %d entries, got %d", palEntryCount, len(parts))
+	}
+
 	var participants []did.DID
-	for _, curr := range strings.Split(string(decrypted), palHeaderDIDSeparator) {
+	for _, curr := range parts {
 		participant, err := did.ParseDID(curr)
 		if err != nil {
 			return nil, fmt.Errorf("invalid participant (did=%s): %w", curr, err)

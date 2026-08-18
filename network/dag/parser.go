@@ -20,7 +20,9 @@ package dag
 
 import (
 	"encoding/base64"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/lestrrat-go/jwx/jwa"
@@ -30,8 +32,13 @@ import (
 	"github.com/nuts-foundation/nuts-node/crypto/hash"
 )
 
+var errNonCanonicalJWS = errors.New("JWS is not canonically encoded compact serialization")
+
 // ParseTransaction parses the input as Nuts Network Transaction according to RFC004.
 func ParseTransaction(input []byte) (Transaction, error) {
+	if err := validateCanonicalCompactSerialization(input); err != nil {
+		return nil, fmt.Errorf(unableToParseTransactionErrFmt, err)
+	}
 	message, err := jws.Parse(input)
 	if err != nil {
 		return nil, fmt.Errorf(unableToParseTransactionErrFmt, err)
@@ -69,6 +76,25 @@ func ParseTransaction(input []byte) (Transaction, error) {
 
 func transactionValidationError(format string, args ...interface{}) error {
 	return fmt.Errorf(transactionNotValidErrFmt, fmt.Errorf(format, args...))
+}
+
+func validateCanonicalCompactSerialization(input []byte) error {
+	parts := strings.Split(string(input), ".")
+	if len(parts) != 3 {
+		return errNonCanonicalJWS
+	}
+	canonical := make([]string, len(parts))
+	for i, part := range parts {
+		decoded, err := base64.RawURLEncoding.DecodeString(part)
+		if err != nil {
+			return errNonCanonicalJWS
+		}
+		canonical[i] = base64.RawURLEncoding.EncodeToString(decoded)
+	}
+	if strings.Join(canonical, ".") != string(input) {
+		return errNonCanonicalJWS
+	}
+	return nil
 }
 
 // transactionParseStep defines a function that parses a part of a JWS, building the internal representation of a transaction.
@@ -185,6 +211,9 @@ func parsePAL(transaction *transaction, headers jws.Headers, _ *jws.Message) err
 	palEncoded, ok := rawPal.([]interface{})
 	if !ok {
 		return transactionValidationError(invalidHeaderErrFmt, palHeader)
+	}
+	if len(palEncoded) != palEntryCount {
+		return transactionValidationError("pal header must contain exactly %d entries, got %d", palEntryCount, len(palEncoded))
 	}
 	var pal [][]byte
 	for _, curr := range palEncoded {
