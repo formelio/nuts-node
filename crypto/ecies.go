@@ -27,9 +27,27 @@ import (
 
 // EciesDecrypt decrypts the `cipherText` using the Elliptic Curve Integrated Encryption Scheme
 func EciesDecrypt(privateKey *ecdsa.PrivateKey, cipherText []byte) ([]byte, error) {
+	if err := validateEciesCiphertextLength(privateKey, cipherText); err != nil {
+		return nil, err
+	}
+
 	key := ecies.ImportECDSA(privateKey)
 
 	return key.Decrypt(cipherText, nil, nil)
+}
+
+func validateEciesCiphertextLength(privateKey *ecdsa.PrivateKey, cipherText []byte) error {
+	curve := privateKey.PublicKey.Curve
+	params := ecies.ParamsFromCurve(curve)
+	if params == nil {
+		return ecies.ErrUnsupportedECIESParameters
+	}
+	rLen := (curve.Params().BitSize + 7) / 4
+	hLen := params.Hash().Size()
+	if len(cipherText) < rLen+hLen+params.BlockSize {
+		return ecies.ErrInvalidMessage
+	}
+	return nil
 }
 
 // EciesEncrypt encrypts the `plainText` using the Elliptic Curve Integrated Encryption Scheme

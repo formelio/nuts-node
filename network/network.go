@@ -613,6 +613,12 @@ func (n *Network) CreateTransaction(ctx context.Context, template Template) (dag
 		if n.nodeDID.Empty() {
 			return nil, errors.New("node DID must be configured to create private transactions")
 		}
+		if template.AttachKey {
+			return nil, errors.New("private transactions can't use an embedded key, keys must be identified by the RFC7515 `kid` header")
+		}
+		if kidURL, err := did.ParseDIDURL(template.Key.KID()); err != nil || kidURL.Fragment == "" {
+			return nil, errors.New("private transactions must be signed with a DID URL kid (did:<method>:<id>#<fragment>)")
+		}
 	}
 
 	// get head

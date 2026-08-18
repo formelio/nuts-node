@@ -153,6 +153,17 @@ func (p *protocol) handleTransactionPayloadQuery(ctx context.Context, connection
 				Warn("Peer requested private transaction over unauthenticated connection")
 			return connection.Send(p, &Envelope{Message: emptyResponse}, false)
 		}
+
+		authored := p.keyStore.Exists(ctx, tx.SigningKeyID())
+		if !authored {
+			log.Logger().
+				WithFields(peer.ToFields()).
+				WithField(core.LogFieldTransactionRef, tx.Ref()).
+				WithField(core.LogFieldKeyID, tx.SigningKeyID()).
+				Warn("Peer requested private payload via a transaction not authored by this node")
+			return connection.Send(p, &Envelope{Message: emptyResponse}, false)
+		}
+
 		epal := dag.EncryptedPAL(tx.PAL())
 
 		pal, err := p.decryptPAL(ctx, epal)
