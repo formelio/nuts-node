@@ -1,6 +1,6 @@
 module github.com/nuts-foundation/nuts-node
 
-go 1.22
+go 1.25.0
 
 require (
 	github.com/PaesslerAG/jsonpath v0.1.2-0.20230323094847-3484786d6f97
@@ -16,7 +16,7 @@ require (
 	github.com/hashicorp/vault/api v1.12.2
 	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/knadh/koanf v1.5.0
-	github.com/labstack/echo/v4 v4.12.0
+	github.com/labstack/echo/v4 v4.15.3
 	github.com/lestrrat-go/jwx/v2 v2.0.21
 	github.com/magiconair/properties v1.8.7
 	github.com/mdp/qrterminal/v3 v3.2.0
@@ -39,14 +39,14 @@ require (
 	github.com/sirupsen/logrus v1.9.3
 	github.com/spf13/cobra v1.8.0
 	github.com/spf13/pflag v1.0.5
-	github.com/stretchr/testify v1.9.0
+	github.com/stretchr/testify v1.11.1
 	github.com/twmb/murmur3 v1.1.8
 	go.etcd.io/bbolt v1.3.9
 	go.uber.org/atomic v1.11.0
 	go.uber.org/goleak v1.3.0
 	go.uber.org/mock v0.4.0
-	golang.org/x/crypto v0.22.0
-	golang.org/x/time v0.5.0
+	golang.org/x/crypto v0.50.0
+	golang.org/x/time v0.15.0
 	google.golang.org/grpc v1.63.2
 	google.golang.org/protobuf v1.33.0
 	gopkg.in/Regis24GmbH/go-phonetics.v2 v2.0.3
@@ -105,7 +105,7 @@ require (
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/klauspost/compress v1.17.7 // indirect
-	github.com/labstack/gommon v0.4.2 // indirect
+	github.com/labstack/gommon v0.5.0 // indirect
 	github.com/lestrrat-go/blackmagic v1.0.2 // indirect
 	github.com/lestrrat-go/httpcc v1.0.1 // indirect
 	github.com/lestrrat-go/httprc v1.0.5 // indirect
@@ -113,8 +113,8 @@ require (
 	github.com/lestrrat-go/option v1.0.1 // indirect
 	github.com/lib/pq v1.10.9 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
-	github.com/mattn/go-colorable v0.1.13 // indirect
-	github.com/mattn/go-isatty v0.0.20 // indirect
+	github.com/mattn/go-colorable v0.1.14 // indirect
+	github.com/mattn/go-isatty v0.0.22 // indirect
 	github.com/mattn/go-sqlite3 v1.14.22 // indirect
 	github.com/mgutz/ansi v0.0.0-20200706080929-d51e80ef957d // indirect
 	github.com/minio/blake2b-simd v0.0.0-20160723061019-3f5f724cb5b1 // indirect
@@ -156,10 +156,10 @@ require (
 	github.com/x-cray/logrus-prefixed-formatter v0.5.2 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/yuin/gopher-lua v1.1.1 // indirect
-	golang.org/x/net v0.24.0 // indirect
-	golang.org/x/sys v0.19.0 // indirect
-	golang.org/x/term v0.19.0 // indirect
-	golang.org/x/text v0.14.0 // indirect
+	golang.org/x/net v0.53.0 // indirect
+	golang.org/x/sys v0.43.0 // indirect
+	golang.org/x/term v0.42.0 // indirect
+	golang.org/x/text v0.36.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240325203815-454cdb8f5daa // indirect
 	gopkg.in/Regis24GmbH/go-diacritics.v2 v2.0.3 // indirect
 	gorm.io/driver/sqlite v1.5.5
@@ -181,6 +181,6 @@ require (
 	github.com/jackc/puddle/v2 v2.2.1 // indirect
 	github.com/microsoft/go-mssqldb v1.6.0 // indirect
 	golang.org/x/exp v0.0.0-20231006140011-7918f672742d // indirect
-	golang.org/x/sync v0.6.0 // indirect
+	golang.org/x/sync v0.20.0 // indirect
 	gorm.io/driver/sqlserver v1.5.2 // indirect
 )
