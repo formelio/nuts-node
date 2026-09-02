@@ -1,6 +1,6 @@
 module github.com/nuts-foundation/nuts-node
 
-go 1.22
+go 1.25.0
 
 require (
 	github.com/PaesslerAG/jsonpath v0.1.2-0.20230323094847-3484786d6f97
@@ -45,10 +45,10 @@ require (
 	go.uber.org/atomic v1.11.0
 	go.uber.org/goleak v1.3.0
 	go.uber.org/mock v0.4.0
-	golang.org/x/crypto v0.22.0
+	golang.org/x/crypto v0.51.0
 	golang.org/x/time v0.5.0
-	google.golang.org/grpc v1.63.2
-	google.golang.org/protobuf v1.33.0
+	google.golang.org/grpc v1.83.1
+	google.golang.org/protobuf v1.36.11
 	gopkg.in/Regis24GmbH/go-phonetics.v2 v2.0.3
 	gopkg.in/yaml.v3 v3.0.1
 	schneider.vip/problem v1.9.1
@@ -67,7 +67,7 @@ require (
 	github.com/bwesterb/go-xmssmt v1.5.2 // indirect
 	github.com/cenkalti/backoff/v3 v3.0.0 // indirect
 	github.com/cespare/xxhash v1.1.0 // indirect
-	github.com/cespare/xxhash/v2 v2.2.0 // indirect
+	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/chromedp/cdproto v0.0.0-20240202021202-6d0b6a386732 // indirect
 	github.com/chromedp/sysutil v1.0.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
@@ -156,11 +156,11 @@ require (
 	github.com/x-cray/logrus-prefixed-formatter v0.5.2 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/yuin/gopher-lua v1.1.1 // indirect
-	golang.org/x/net v0.24.0 // indirect
-	golang.org/x/sys v0.19.0 // indirect
-	golang.org/x/term v0.19.0 // indirect
-	golang.org/x/text v0.14.0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20240325203815-454cdb8f5daa // indirect
+	golang.org/x/net v0.55.0 // indirect
+	golang.org/x/sys v0.45.0 // indirect
+	golang.org/x/term v0.43.0 // indirect
+	golang.org/x/text v0.37.0 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260526163538-3dc84a4a5aaa // indirect
 	gopkg.in/Regis24GmbH/go-diacritics.v2 v2.0.3 // indirect
 	gorm.io/driver/sqlite v1.5.5
 	gorm.io/gorm v1.25.9
@@ -181,6 +181,6 @@ require (
 	github.com/jackc/puddle/v2 v2.2.1 // indirect
 	github.com/microsoft/go-mssqldb v1.6.0 // indirect
 	golang.org/x/exp v0.0.0-20231006140011-7918f672742d // indirect
-	golang.org/x/sync v0.6.0 // indirect
+	golang.org/x/sync v0.20.0 // indirect
 	gorm.io/driver/sqlserver v1.5.2 // indirect
 )
